@@ -1,0 +1,53 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\projects\\letterly\\test-app\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\projects\\letterly\\test-app\\modules\\first-module\\android\\src\\main\\java\\expo\\modules\\firstmodule\\FirstModule.kt||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:modules\\first-module\\android\\src\\main\\java\\expo\\modules\\firstmodule\\FirstModule.kt||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\projects\\letterly\\test-app\\modules\\first-module\\android\\build.gradle||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:modules\\first-module\\android\\build.gradle||{8B382828-6202-11D1-8870-0000F87579D2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "FirstModule.kt",
+              "DocumentMoniker": "C:\\projects\\letterly\\test-app\\modules\\first-module\\android\\src\\main\\java\\expo\\modules\\firstmodule\\FirstModule.kt",
+              "RelativeDocumentMoniker": "modules\\first-module\\android\\src\\main\\java\\expo\\modules\\firstmodule\\FirstModule.kt",
+              "ToolTip": "C:\\projects\\letterly\\test-app\\modules\\first-module\\android\\src\\main\\java\\expo\\modules\\firstmodule\\FirstModule.kt",
+              "RelativeToolTip": "modules\\first-module\\android\\src\\main\\java\\expo\\modules\\firstmodule\\FirstModule.kt",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-01-06T14:41:27.252Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "build.gradle",
+              "DocumentMoniker": "C:\\projects\\letterly\\test-app\\modules\\first-module\\android\\build.gradle",
+              "RelativeDocumentMoniker": "modules\\first-module\\android\\build.gradle",
+              "ToolTip": "C:\\projects\\letterly\\test-app\\modules\\first-module\\android\\build.gradle",
+              "RelativeToolTip": "modules\\first-module\\android\\build.gradle",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAB0AAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-01-06T14:41:22.552Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
