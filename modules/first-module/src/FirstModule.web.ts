@@ -1,21 +1,61 @@
 import { NativeModule, registerWebModule } from 'expo';
 
-import { ChangeEventPayload } from './FirstModule.types';
-
-type FirstModuleEvents = {
-  onChange: (params: ChangeEventPayload) => void;
-}
+import {
+  FirstModuleEvents,
+  PermissionResponse,
+  RecordingStatus
+} from './FirstModule.types';
 
 class FirstModule extends NativeModule<FirstModuleEvents> {
-  PI = Math.PI;
-  async setValueAsync(value: string): Promise<void> {
-    this.emit('onChange', { value });
+  private isRecordingState = false;
+  private recordingUri: string | null = null;
+
+  async requestPermissions(): Promise<PermissionResponse> {
+    // Web fallback: запрос разрешений через Web Audio API
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      return { granted: true };
+    } catch (error) {
+      return { granted: false };
+    }
   }
-  hello() {
-    return 'Hello world! 👋';
+
+  async startRecording(outputPath?: string): Promise<RecordingStatus> {
+    // Web fallback: заглушка для веб-версии
+    this.isRecordingState = true;
+    this.recordingUri = outputPath || `web-recording-${Date.now()}.m4a`;
+    
+    this.emit('onRecordingStatusChanged', {
+      isRecording: true,
+      uri: this.recordingUri
+    });
+
+    return {
+      uri: this.recordingUri,
+      status: 'recording'
+    };
   }
-  showButton(buttonText: string): string {
-    return `Button clicked: ${buttonText}`;
+
+  async stopRecording(): Promise<RecordingStatus> {
+    // Web fallback: заглушка для веб-версии
+    this.isRecordingState = false;
+    const uri = this.recordingUri;
+    this.recordingUri = null;
+
+    this.emit('onRecordingStatusChanged', {
+      isRecording: false,
+      uri: uri
+    });
+
+    return {
+      uri: uri || '',
+      status: 'stopped'
+    };
+  }
+
+  isRecording(): boolean {
+    return this.isRecordingState;
   }
 };
 

@@ -5,6 +5,8 @@ export type OnLoadEventPayload = {
 };
 
 export type FirstModuleEvents = {
+  onRecordingStatusChanged: (params: RecordingStatusChangeEvent) => void;
+
   onChange: (params: ChangeEventPayload) => void;
 };
 
@@ -16,4 +18,18 @@ export type FirstModuleViewProps = {
   url: string;
   onLoad: (event: { nativeEvent: OnLoadEventPayload }) => void;
   style?: StyleProp<ViewStyle>;
+};
+
+export type RecordingStatus = {
+  uri: string;
+  status: 'recording' | 'stopped';
+};
+
+export type PermissionResponse = {
+  granted: boolean;
+};
+
+export type RecordingStatusChangeEvent = {
+  isRecording: boolean;
+  uri?: string;
 };
