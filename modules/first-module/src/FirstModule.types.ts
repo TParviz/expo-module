@@ -31,5 +31,12 @@ export type PermissionResponse = {
 
 export type RecordingStatusChangeEvent = {
   isRecording: boolean;
+  isPaused?: boolean;
   uri?: string;
+};
+
+export type RecordingInfo = {
+  isRecording: boolean;
+  isPaused: boolean;
+  uri: string | null;
 };

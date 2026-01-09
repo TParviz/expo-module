@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+                   android:maxSdkVersion="36" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+                   <!-- Android 14+ требует specific foreground service type -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    
+  <application>
+    <service
+      android:name="expo.modules.audiorecorder.AudioRecorderService"
+      android:enabled="true"
+      android:exported="false"
+      android:foregroundServiceType="microphone" />
+  </application>
+    
+</manifest>

@@ -1,195 +1,216 @@
-// import { getModuleVersion, showButton } from '@/modules/first-module';
-import * as FirstModule from '@/modules/first-module';
-import { useEffect, useState } from 'react';
-import { Alert, Button, Platform, StyleSheet, Text, View } from "react-native";
-
+import type { RecordingStatus } from 'expo-audio-recorder';
+import * as AudioRecorder from 'expo-audio-recorder';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  Linking,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function App() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [recordingUri, setRecordingUri] = useState<string>('');
-  const [hasPermission, setHasPermission] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [status, setStatus] = useState<RecordingStatus>({
+    state: 'idle',
+    filePath: null,
+    duration: 0,
+    isRecording: false,
+    isPaused: false,
+    noiseLevel: -160,
+  });
 
   useEffect(() => {
-    requestPermission();
+    // Check permissions on mount
+    checkPermissions();
 
-    const subscription = FirstModule.addRecordingStatusListener((event) => {
-      setIsRecording(event.isRecording);
-      setIsPaused(event.isPaused);
-      if (event.uri) {
-        setRecordingUri(event.uri);
-      }
+    // Subscribe to state changes
+    const subscription = AudioRecorder.addRecordingStateListener((newStatus) => {
+      setStatus(newStatus);
     });
 
-    return () => subscription.remove();
-  }, []);
-
-  // Таймер для отображения длительности записи
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    if (isRecording && !isPaused) {
-      interval = setInterval(() => {
-        setRecordingDuration(prev => prev + 1);
-      }, 1000);
-    }
+    // Poll status periodically for real-time updates (duration and noise level)
+    const interval = setInterval(async () => {
+      try {
+        const currentStatus = await AudioRecorder.getStatusAsync();
+        setStatus(currentStatus);
+      } catch (error) {
+        // Ignore errors during polling
+      }
+    }, 100); // Update every 100ms for smooth animation
 
     return () => {
-      if (interval) clearInterval(interval);
+      subscription.remove();
+      clearInterval(interval);
     };
-  }, [isRecording, isPaused]);
+  }, []);
 
-  const requestPermission = async () => {
-    try {
-      const { granted } = await FirstModule.requestPermissions();
-      setHasPermission(granted);
-      
-      if (!granted) {
-        Alert.alert('Permission Required', 'Please grant microphone permission');
-      }
-    } catch (error) {
-      console.error('Permission error:', error);
-    }
-  };
-
-  const handleStartRecording = async () => {
-    try {
-      if (!hasPermission) {
-        await requestPermission();
-        return;
-      }
-
-      setRecordingDuration(0);
-      const result = await FirstModule.startRecording();
-      console.log('Recording started:', result);
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-    }
-  };
-
-  const handlePauseRecording = async () => {
-    try {
-      const result = await FirstModule.pauseRecording();
-      console.log('Recording paused:', result);
-    } catch (error: any) {
-      if (error.code === 'NOT_SUPPORTED') {
+  const checkPermissions = async () => {
+    const permission = await AudioRecorder.requestPermissions();
+    
+    if (!permission.granted) {
+      if (permission.canRequest) {
         Alert.alert(
-          'Not Supported', 
-          'Pause/Resume is not supported on Android versions below 7.0'
+          'Нужен доступ',
+          'Требуется разрешение на использование микрофона'
         );
       } else {
-        Alert.alert('Error', error.message);
+        Alert.alert(
+          'Разрешение заблокировано',
+          'Пожалуйста, включите доступ к микрофону в настройках',
+          [
+            { text: 'Отмена', style: 'cancel' },
+            { text: 'Настройки', onPress: () => Linking.openSettings() }
+          ]
+        );
       }
     }
   };
 
-  const handleResumeRecording = async () => {
+  const handleStart = async () => {
     try {
-      const result = await FirstModule.resumeRecording();
-      console.log('Recording resumed:', result);
+      const filePath = await AudioRecorder.startRecording({
+        sampleRate: 44100,
+        bitRate: 128000,
+        channels: 1,
+        enableChunking: false,
+      });
+      console.log('Recording started:', filePath);
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Ошибка', error.message || 'Не удалось начать запись');
     }
   };
 
-  const handleStopRecording = async () => {
+  const handleStop = async () => {
     try {
-      const result = await FirstModule.stopRecording();
-      console.log('Recording stopped:', result);
-      setRecordingDuration(0);
+      const result = await AudioRecorder.stopRecording();
       Alert.alert(
-        'Recording Saved', 
-        `File: ${result.uri}\n\nDuration: ${formatDuration(recordingDuration)}`
+        'Запись сохранена',
+        `Длительность: ${result.duration.toFixed(1)}с\n` +
+        `Размер: ${(result.fileSize / 1024).toFixed(0)} КБ\n` +
+        `Файл: ${result.filePath.split('/').pop()}`
       );
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Ошибка', error.message || 'Не удалось остановить запись');
     }
   };
 
-  const formatDuration = (seconds: number): string => {
+  const handlePause = async () => {
+    try {
+      await AudioRecorder.pauseRecording();
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.message || 'Не удалось поставить на паузу');
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await AudioRecorder.resumeRecording();
+    } catch (error: any) {
+      Alert.alert('Ошибка', error.message || 'Не удалось возобновить запись');
+    }
+  };
+
+  const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const getStatusText = () => {
-    if (!isRecording) return '⚪ Stopped';
-    if (isPaused) return '⏸️ Paused';
-    return '🔴 Recording...';
+  const getNoiseColor = (level: number) => {
+    if (level > -20) return '#4CAF50'; // Громко
+    if (level > -40) return '#FFC107'; // Нормально
+    return '#9E9E9E'; // Тихо
   };
-
-  const supportsAndroidVersion = Platform.OS === 'ios' || 
-    (Platform.OS === 'android' && Platform.Version >= 24);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Audio Recorder</Text>
-      
-      <View style={styles.statusContainer}>
-        <Text style={styles.status}>{getStatusText()}</Text>
-        {isRecording && (
-          <Text style={styles.duration}>{formatDuration(recordingDuration)}</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Аудио Рекордер</Text>
+      </View>
+
+      {/* Status Card */}
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Text style={styles.label}>Статус:</Text>
+          <View style={[
+            styles.badge,
+            status.state === 'recording' && styles.badgeRecording,
+            status.state === 'paused' && styles.badgePaused,
+          ]}>
+            <Text style={styles.badgeText}>
+              {status.state === 'recording' ? '⏺️ ЗАПИСЬ' : 
+               status.state === 'paused' ? '⏸️ ПАУЗА' : 
+               '⏹️ ОСТАНОВЛЕНО'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.label}>Время:</Text>
+          <Text style={styles.value}>{formatTime(status.duration)}</Text>
+        </View>
+
+        {status.isRecording && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Шум:</Text>
+            <View style={styles.noiseContainer}>
+              <View style={[
+                styles.noiseDot,
+                { backgroundColor: getNoiseColor(status.noiseLevel) }
+              ]} />
+              <Text style={[styles.value, { color: getNoiseColor(status.noiseLevel) }]}>
+                {status.noiseLevel.toFixed(0)} дБ
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {status.filePath && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Файл:</Text>
+            <Text style={styles.fileName} numberOfLines={1}>
+              {status.filePath.split('/').pop()}
+            </Text>
+          </View>
         )}
       </View>
 
-      {recordingUri ? (
-        <Text style={styles.uri} numberOfLines={2}>
-          File: {recordingUri}
-        </Text>
-      ) : null}
+      {/* Controls */}
+      <View style={styles.controls}>
+        {!status.isRecording ? (
+          <TouchableOpacity
+            style={[styles.button, styles.startButton]}
+            onPress={handleStart}
+          >
+            <Text style={styles.buttonText}>🎤 Начать запись</Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.button, styles.stopButton]}
+              onPress={handleStop}
+            >
+              <Text style={styles.buttonText}>⏹️ Остановить</Text>
+            </TouchableOpacity>
 
-      <View style={styles.buttons}>
-        <Button
-          title="Start Recording"
-          onPress={handleStartRecording}
-          disabled={isRecording || !hasPermission}
-          color="#4CAF50"
-        />
-        
-        <View style={styles.controlButtons}>
-          <View style={styles.halfButton}>
-            <Button
-              title="Pause"
-              onPress={handlePauseRecording}
-              disabled={!isRecording || isPaused || !supportsAndroidVersion}
-              color="#FF9800"
-            />
-          </View>
-          
-          <View style={styles.halfButton}>
-            <Button
-              title="Resume"
-              onPress={handleResumeRecording}
-              disabled={!isRecording || !isPaused || !supportsAndroidVersion}
-              color="#2196F3"
-            />
-          </View>
-        </View>
-        
-        <Button
-          title="Stop Recording"
-          onPress={handleStopRecording}
-          disabled={!isRecording}
-          color="#F44336"
-        />
-
-        <Button
-          title="Request Permission"
-          onPress={requestPermission}
-          disabled={hasPermission} 
-          color="#9E9E9E"
-        />
-      </View>
-
-      <View style={styles.info}>
-        <Text style={styles.permission}>
-          Permission: {hasPermission ? '✅ Granted' : '❌ Not granted'}
-        </Text>
-        {Platform.OS === 'android' && Platform.Version < 24 && (
-          <Text style={styles.warning}>
-            ⚠️ Pause/Resume requires Android 7.0+
-          </Text>
+            {status.isPaused ? (
+              <TouchableOpacity
+                style={[styles.button, styles.resumeButton]}
+                onPress={handleResume}
+              >
+                <Text style={styles.buttonText}>▶️ Продолжить</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.button, styles.pauseButton]}
+                onPress={handlePause}
+              >
+                <Text style={styles.buttonText}>⏸️ Пауза</Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
     </View>
@@ -199,63 +220,107 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
     backgroundColor: '#f5f5f5',
   },
+  header: {
+    backgroundColor: '#2196F3',
+    padding: 20,
+    paddingTop: 60,
+    alignItems: 'center',
+  },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 30,
+    color: '#fff',
+  },
+  card: {
+    backgroundColor: '#fff',
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    width: 80,
+  },
+  value: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#333',
   },
-  statusContainer: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  status: {
-    fontSize: 20,
-    marginBottom: 5,
-    fontWeight: '600',
-  },
-  duration: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    fontVariant: ['tabular-nums'],
-  },
-  uri: {
-    fontSize: 12,
-    color: 'gray',
-    marginBottom: 20,
-    textAlign: 'center',
-    paddingHorizontal: 10,
-  },
-  buttons: {
-    gap: 12,
-    width: '100%',
-    maxWidth: 300,
-  },
-  controlButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  halfButton: {
-    flex: 1,
-  },
-  info: {
-    marginTop: 30,
-    alignItems: 'center',
-  },
-  permission: {
+  fileName: {
     fontSize: 14,
     color: '#666',
+    flex: 1,
   },
-  warning: {
-    marginTop: 10,
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#9E9E9E',
+  },
+  badgeRecording: {
+    backgroundColor: '#F44336',
+  },
+  badgePaused: {
+    backgroundColor: '#FF9800',
+  },
+  badgeText: {
+    color: '#fff',
     fontSize: 12,
-    color: '#FF5722',
-    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  noiseContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  noiseDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+  controls: {
+    padding: 16,
+  },
+  button: {
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  startButton: {
+    backgroundColor: '#4CAF50',
+  },
+  stopButton: {
+    backgroundColor: '#F44336',
+  },
+  pauseButton: {
+    backgroundColor: '#FF9800',
+  },
+  resumeButton: {
+    backgroundColor: '#2196F3',
   },
 });

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
+      "expo-audio-recorder": ["./modules/expo-audio-recorder/src"],
       "@/*": [
         "./*"
       ]
