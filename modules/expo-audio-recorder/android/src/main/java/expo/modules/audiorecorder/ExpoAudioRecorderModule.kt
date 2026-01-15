@@ -149,6 +149,71 @@ class ExpoAudioRecorderModule : Module() {
         }
       }
     }
+    
+    // Recovery methods
+    AsyncFunction("checkRecoveryAsync") { promise: Promise ->
+      moduleScope.launch {
+        try {
+          val result = audioRecorderService?.checkAndRecoverUnfinishedRecording()
+          if (result != null) {
+            promise.resolve(
+              mapOf(
+                "filePath" to result.filePath,
+                "originalPath" to result.originalPath,
+                "duration" to result.duration,
+                "fileSize" to result.fileSize,
+                "timestamp" to result.timestamp
+              )
+            )
+          } else {
+            promise.resolve(null)
+          }
+        } catch (e: Exception) {
+          promise.reject("RECOVERY_CHECK_FAILED", e.message, e)
+        }
+      }
+    }
+    
+    AsyncFunction("getRecoveryFilesAsync") { promise: Promise ->
+      moduleScope.launch {
+        try {
+          val files = audioRecorderService?.getRecoveryFiles() ?: emptyList()
+          val filesList = files.map { file ->
+            mapOf(
+              "path" to file.path,
+              "name" to file.name,
+              "size" to file.size,
+              "timestamp" to file.timestamp
+            )
+          }
+          promise.resolve(filesList)
+        } catch (e: Exception) {
+          promise.reject("GET_RECOVERY_FILES_FAILED", e.message, e)
+        }
+      }
+    }
+    
+    AsyncFunction("deleteRecoveryFileAsync") { path: String, promise: Promise ->
+      moduleScope.launch {
+        try {
+          val deleted = audioRecorderService?.deleteRecoveryFile(path) ?: false
+          promise.resolve(deleted)
+        } catch (e: Exception) {
+          promise.reject("DELETE_RECOVERY_FILE_FAILED", e.message, e)
+        }
+      }
+    }
+    
+    AsyncFunction("cleanOldRecoveryFilesAsync") { daysToKeep: Int, promise: Promise ->
+      moduleScope.launch {
+        try {
+          audioRecorderService?.cleanOldRecoveryFiles(daysToKeep)
+          promise.resolve(true)
+        } catch (e: Exception) {
+          promise.reject("CLEAN_RECOVERY_FILES_FAILED", e.message, e)
+        }
+      }
+    }
 
     OnDestroy {
       audioRecorderService?.release()

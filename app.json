@@ -40,8 +40,6 @@
           }
         }
       ]
-      
-      // "./modules/first-module"
     ],
     "experiments": {
       "typedRoutes": true,

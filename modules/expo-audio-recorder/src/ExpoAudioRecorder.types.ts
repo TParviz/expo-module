@@ -39,3 +39,12 @@ export type ExpoAudioRecorderModuleEvents = {
   onAudioChunk: (chunk: AudioChunk) => void;
   onRecordingError: (error: { code: string; message: string }) => void;
 };
+
+// public enum RecordingEvent: Sendable {
+//   case cantHearMicrophone
+//   case chankWasLost(Error)
+//   case chunk(Data)
+//   case canceled
+//   case completed(URL?)+
+//   case audioFileError(Error)
+// }

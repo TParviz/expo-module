@@ -5,13 +5,16 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
                    <!-- Android 14+ требует specific foreground service type -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- Phone state for handling calls -->
+  <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     
   <application>
-    <service
-      android:name="expo.modules.audiorecorder.AudioRecorderService"
-      android:enabled="true"
-      android:exported="false"
-      android:foregroundServiceType="microphone" />
-  </application>
-    
+        <service
+            android:name=".AudioRecordingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+    </application>
+
 </manifest>
