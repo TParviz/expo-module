@@ -15,13 +15,5 @@
       tools:ignore="ProtectedPermissions" /> -->
 
   <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
-    
-  <application>
-        <service
-            android:name=".AudioRecordingService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
-    </application>
 
 </manifest>

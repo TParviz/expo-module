@@ -1,50 +1,135 @@
-export type RecordingState = 'idle' | 'recording' | 'paused';
+/**
+ * expo-audio-recorder - TypeScript Types
+ * 
+ * Чистый рекордер без логики прерываний.
+ */
 
-export type RecordingConfig = {
-  sampleRate?: number; // Default: 44100
-  bitRate?: number; // Default: 128000
-  channels?: number; // Default: 1 (mono)
-  enableChunking?: boolean; // Default: false
-  chunkDuration?: number; // Duration in milliseconds, default: 1000
-};
+/**
+ * Конфигурация записи
+ */
+export interface RecordingOptions {
+  /** Sample rate в Hz (по умолчанию 44100) */
+  sampleRate?: number;
+  
+  /** Bit rate в bps (по умолчанию 128000) */
+  bitRate?: number;
+  
+  /** Количество каналов: 1 (mono) или 2 (stereo) */
+  channels?: number;
+  
+  /** Включить стриминг аудио чанков */
+  enableChunking?: boolean;
+  
+  /** Длительность чанка в мс (по умолчанию 1000) */
+  chunkDuration?: number;
+}
 
-export type RecordingResult = {
+/**
+ * Результат записи
+ */
+export interface RecordingResult {
+  /** Путь к записанному файлу */
   filePath: string;
-  duration: number; // in seconds
-  fileSize: number; // in bytes
-};
+  
+  /** Длительность в секундах */
+  duration: number;
+  
+  /** Размер файла в байтах */
+  fileSize: number;
+}
 
-export type AudioChunk = {
-  data: number[]; // PCM data downsampled to 16kHz
+/**
+ * Текущий статус записи
+ */
+export interface RecordingStatus {
+  /** Состояние: "idle", "recording", "paused" */
+  state: 'idle' | 'recording' | 'paused';
+  
+  /** Путь к файлу (если запись активна) */
+  filePath?: string;
+  
+  /** Текущая длительность в секундах */
+  duration: number;
+  
+  /** Идёт ли запись */
+  isRecording: boolean;
+  
+  /** На паузе ли запись */
+  isPaused: boolean;
+  
+  /** Уровень шума в dB */
+  noiseLevel: number;
+}
+
+/**
+ * Аудио чанк для real-time обработки
+ */
+export interface AudioChunk {
+  /** PCM данные в формате Float32 (-1.0 to 1.0) */
+  data: number[];
+  
+  /** Sample rate чанка (обычно 16000) */
   sampleRate: number;
+  
+  /** Timestamp в миллисекундах */
   timestamp: number;
-};
+}
 
-export type PermissionResponse = {
+/**
+ * Ответ на запрос разрешений
+ */
+export interface PermissionResponse {
+  /** Разрешение получено */
   granted: boolean;
-  canRequest: boolean;
-};
+  
+  /** Статус: "granted", "denied", "undetermined" */
+  status: 'granted' | 'denied' | 'undetermined';
+}
 
-export type RecordingStatus = {
-  state: RecordingState;
-  filePath: string | null;
-  duration: number; // in seconds
+/**
+ * Событие изменения состояния записи
+ */
+export interface RecordingStateChangedEvent {
+  state: 'idle' | 'recording' | 'paused';
+  filePath?: string;
+  duration: number;
   isRecording: boolean;
   isPaused: boolean;
-  noiseLevel: number; // dB level, -160 to 0
-};
+  noiseLevel: number;
+}
+
+/**
+ * Событие записи
+ */
+export interface RecordingEvent {
+  type: RecordingEventType;
+  filePath?: string;
+  duration?: number;
+  fileSize?: number;
+  message?: string;
+}
+
+/**
+ * Типы событий записи
+ */
+export type RecordingEventType =
+  | 'completed'     // Запись успешно завершена
+  | 'canceled'      // Запись отменена
+  | 'error';        // Ошибка записи
+
+/**
+ * Подписка на событие
+ */
+export interface Subscription {
+  remove(): void;
+}
 
 export type ExpoAudioRecorderModuleEvents = {
+  // Существующие события
   onRecordingStateChanged: (status: RecordingStatus) => void;
   onAudioChunk: (chunk: AudioChunk) => void;
   onRecordingError: (error: { code: string; message: string }) => void;
+  
+  // НОВОЕ: Унифицированное событие записи
+  onRecordingEvent: (event: RecordingEvent) => void;
 };
-
-// public enum RecordingEvent: Sendable {
-//   case cantHearMicrophone
-//   case chankWasLost(Error)
-//   case chunk(Data)
-//   case canceled
-//   case completed(URL?)+
-//   case audioFileError(Error)
-// }

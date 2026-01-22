@@ -4,6 +4,7 @@
     "strict": true,
     "paths": {
       "expo-audio-recorder": ["./modules/expo-audio-recorder/src"],
+      "audio-recorder-helper": ["./modules/audio-recorder-helper/src"],
       "@/*": [
         "./*"
       ]
