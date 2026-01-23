@@ -1,10 +1,8 @@
 package audio.recorder.helper
 
-import android.content.Context
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
-
 
 /**
  * Expo Native Module для обработки аудио прерываний
@@ -26,13 +24,16 @@ class AudioRecorderHelperModule : Module() {
         get() = requireNotNull(appContext.reactContext) { "React context is null" }
 
     override fun definition() = ModuleDefinition {
-        Name("ExpoAudioInterruption")
+        Name("AudioRecorderHelper")
 
         Events(
             "onInterruption",
             "onInterruptionEnd",
             "onPhoneCall",
-            "onBluetoothChange"
+            "onBluetoothChange",
+            "onAudioFocusChanged",
+            "onAudioStateChanged",
+            "onMicrophoneChanged"
         )
 
         OnCreate {
@@ -43,6 +44,7 @@ class AudioRecorderHelperModule : Module() {
 
             interruptionManager = InterruptionManager(
                 context = ctx,
+                bluetoothManager = bluetoothManager!!,
                 onInterruption = { info ->
                     sendEvent("onInterruption", mapOf(
                         "source" to info.source.name,
@@ -67,6 +69,11 @@ class AudioRecorderHelperModule : Module() {
                     interruptionManager?.handleAudioFocusGain()
                 }
             )
+            
+            // Устанавливаем callback для событий фокуса
+            audioFocusManager?.setFocusEventCallback { eventType, data ->
+                sendEvent("onAudioFocusChanged", data)
+            }
 
             phoneStateManager = PhoneStateManager(
                 context = ctx,
@@ -90,7 +97,9 @@ class AudioRecorderHelperModule : Module() {
             microphoneManager = null
         }
 
-        // === Мониторинг ===
+        // ============================================================
+        // МОНИТОРИНГ
+        // ============================================================
 
         AsyncFunction("startMonitoring") { promise: Promise ->
             try {
@@ -114,7 +123,9 @@ class AudioRecorderHelperModule : Module() {
             promise.resolve(isMonitoring)
         }
 
-        // === Аудио фокус ===
+        // ============================================================
+        // АУДИО ФОКУС
+        // ============================================================
 
         AsyncFunction("requestAudioFocus") { promise: Promise ->
             try {
@@ -138,15 +149,26 @@ class AudioRecorderHelperModule : Module() {
             promise.resolve(audioFocusManager?.hasFocus() ?: false)
         }
 
-        // === Bluetooth ===
+        AsyncFunction("getAudioState") { promise: Promise ->
+            try {
+                val state = audioFocusManager?.getAudioState() ?: emptyMap()
+                promise.resolve(state)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        // ============================================================
+        // BLUETOOTH
+        // ============================================================
 
         AsyncFunction("getBluetoothState") { promise: Promise ->
             try {
                 val state = bluetoothManager?.getBluetoothState()
                 promise.resolve(mapOf(
                     "isConnected" to (state?.isConnected ?: false),
-                    "isHeadset" to (state?.isHeadset ?: false),
-                    "isSpeaker" to (state?.isSpeaker ?: false),
+                    "isHeadset" to (state?.isBluetoothHeadset ?: false),
+                    "isSpeaker" to (state?.isBluetoothSpeaker ?: false),
                     "deviceName" to state?.deviceName
                 ))
             } catch (e: Exception) {
@@ -154,30 +176,191 @@ class AudioRecorderHelperModule : Module() {
             }
         }
 
-        // === Микрофоны ===
+        // ============================================================
+        // МИКРОФОНЫ
+        // ============================================================
 
         AsyncFunction("getAvailableMicrophones") { promise: Promise ->
             try {
                 val mics = microphoneManager?.getAvailableMicrophones() ?: emptyList()
+                val selectedId = microphoneManager?.getSelectedMicrophone()?.id
+                
                 promise.resolve(mics.map { mic ->
-                    mapOf(
-                        "id" to mic.id,
-                        "type" to mic.type,
-                        "typeName" to mic.typeName,
-                        "name" to mic.name,
-                        "isDefault" to mic.isDefault
-                    )
+                    microphoneToMap(mic, mic.id == selectedId)
                 })
             } catch (e: Exception) {
                 promise.reject("ERROR", e.message, e)
             }
         }
 
-        // === Утилиты ===
+        AsyncFunction("getActiveMicrophone") { promise: Promise ->
+            try {
+                val mic = microphoneManager?.getActiveMicrophone()
+                if (mic != null) {
+                    val isSelected = microphoneManager?.isManualSelection() == true
+                    promise.resolve(microphoneToMap(mic, isSelected))
+                } else {
+                    promise.resolve(null)
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("getSelectedMicrophone") { promise: Promise ->
+            try {
+                val mic = microphoneManager?.getSelectedMicrophone()
+                if (mic != null) {
+                    promise.resolve(microphoneToMap(mic, true))
+                } else {
+                    promise.resolve(null)
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("selectMicrophone") { id: Int?, promise: Promise ->
+            try {
+                val result = microphoneManager?.selectMicrophone(id)
+                
+                when (result) {
+                    is MicrophoneSelectionResult.Success -> {
+                        // Отправляем событие об изменении микрофона
+                        sendEvent("onMicrophoneChanged", microphoneToMap(result.microphone, id != null))
+                        
+                        promise.resolve(mapOf(
+                            "success" to true,
+                            "microphone" to microphoneToMap(result.microphone, id != null),
+                            "error" to null
+                        ))
+                    }
+                    is MicrophoneSelectionResult.NotFound -> {
+                        promise.resolve(mapOf(
+                            "success" to false,
+                            "microphone" to null,
+                            "error" to "Microphone with id=${result.requestedId} not found"
+                        ))
+                    }
+                    is MicrophoneSelectionResult.Error -> {
+                        promise.resolve(mapOf(
+                            "success" to false,
+                            "microphone" to null,
+                            "error" to result.message
+                        ))
+                    }
+                    null -> {
+                        promise.resolve(mapOf(
+                            "success" to false,
+                            "microphone" to null,
+                            "error" to "MicrophoneManager not initialized"
+                        ))
+                    }
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("selectMicrophoneByType") { type: Int, promise: Promise ->
+            try {
+                val result = microphoneManager?.selectMicrophoneByType(type)
+                
+                when (result) {
+                    is MicrophoneSelectionResult.Success -> {
+                        sendEvent("onMicrophoneChanged", microphoneToMap(result.microphone, true))
+                        
+                        promise.resolve(mapOf(
+                            "success" to true,
+                            "microphone" to microphoneToMap(result.microphone, true),
+                            "error" to null
+                        ))
+                    }
+                    is MicrophoneSelectionResult.NotFound -> {
+                        promise.resolve(mapOf(
+                            "success" to false,
+                            "microphone" to null,
+                            "error" to "Microphone type not available"
+                        ))
+                    }
+                    is MicrophoneSelectionResult.Error -> {
+                        promise.resolve(mapOf(
+                            "success" to false,
+                            "microphone" to null,
+                            "error" to result.message
+                        ))
+                    }
+                    null -> {
+                        promise.resolve(mapOf(
+                            "success" to false,
+                            "microphone" to null,
+                            "error" to "MicrophoneManager not initialized"
+                        ))
+                    }
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("resetMicrophoneSelection") { promise: Promise ->
+            try {
+                microphoneManager?.resetToAutoSelection()
+                val mic = microphoneManager?.getActiveMicrophone()
+                
+                if (mic != null) {
+                    sendEvent("onMicrophoneChanged", microphoneToMap(mic, false))
+                    
+                    promise.resolve(mapOf(
+                        "success" to true,
+                        "microphone" to microphoneToMap(mic, false),
+                        "error" to null
+                    ))
+                } else {
+                    promise.resolve(mapOf(
+                        "success" to false,
+                        "microphone" to null,
+                        "error" to "No microphones available"
+                    ))
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("isManualMicrophoneSelection") { promise: Promise ->
+            promise.resolve(microphoneManager?.isManualSelection() ?: false)
+        }
+
+        // ============================================================
+        // УТИЛИТЫ
+        // ============================================================
 
         AsyncFunction("isInPhoneCall") { promise: Promise ->
             promise.resolve(phoneStateManager?.isInCall() ?: false)
         }
+        
+        AsyncFunction("hasActiveMediaPlayback") { promise: Promise ->
+            promise.resolve(interruptionManager?.hasActiveMediaPlayback() ?: false)
+        }
+    }
+
+    // ============================================================
+    // PRIVATE HELPERS
+    // ============================================================
+
+    private fun microphoneToMap(mic: MicrophoneInfo, isSelected: Boolean): Map<String, Any?> {
+        return mapOf(
+            "id" to mic.id,
+            "type" to mic.type,
+            "typeName" to mic.typeName,
+            "name" to mic.name,
+            "isDefault" to mic.isDefault,
+            "isSelected" to isSelected,
+            "address" to mic.address,
+            "channelCounts" to mic.channelCounts,
+            "sampleRates" to mic.sampleRates
+        )
     }
 
     private fun startMonitoringInternal() {

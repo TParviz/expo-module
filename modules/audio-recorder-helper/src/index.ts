@@ -1,5 +1,5 @@
 /**
- * audio-recorder-helper
+ * expo-audio-interruption
  * 
  * Модуль для обработки аудио прерываний в Expo/React Native.
  * 
@@ -12,29 +12,30 @@
  * - Другие приложения использующие микрофон
  * 
  * НЕ управляет записью - только мониторинг и события.
- * Используйте вместе с expo-audio-recorder.
+ * Используйте вместе с expo-audio-recorder-core.
  */
 
-import { EventEmitter, NativeModulesProxy } from 'expo-modules-core';
+import { EventEmitter } from 'expo-modules-core';
+import AudioRecorderHelper from './AudioRecorderHelperModule';
 
 import type {
-  AudioRecorderHelperModuleEvents,
+  AudioFocusEvent,
+  AudioRecorderHelperEvents,
+  AudioState,
   BluetoothState,
   InterruptionEndEvent,
   InterruptionInfo,
   InterruptionSource,
   MicrophoneInfo,
+  MicrophoneSelectionResult,
   PhoneCallEvent,
   Subscription
 } from './AudioRecorderHelper.types';
-import AudioRecorderHelperModule from './AudioRecorderHelperModule';
 
 export * from './AudioRecorderHelper.types';
 
-// Нативный модуль
-const ExpoAudioInterruption = NativeModulesProxy.ExpoAudioInterruption;
-
-const emitter = new EventEmitter<AudioRecorderHelperModuleEvents>(AudioRecorderHelperModule);
+// Event emitter
+const emitter = new EventEmitter<AudioRecorderHelperEvents>(AudioRecorderHelper);
 
 // ============================================================
 // МОНИТОРИНГ
@@ -42,36 +43,23 @@ const emitter = new EventEmitter<AudioRecorderHelperModuleEvents>(AudioRecorderH
 
 /**
  * Начать мониторинг прерываний
- * 
- * Запрашивает аудио фокус и начинает отслеживать прерывания.
- * 
- * @example
- * ```ts
- * await startMonitoring();
- * 
- * addInterruptionListener((info) => {
- *   if (info.policy === 'PAUSE') {
- *     await pauseRecording();
- *   }
- * });
- * ```
  */
 export async function startMonitoring(): Promise<void> {
-  return await ExpoAudioInterruption.startMonitoring();
+  return await AudioRecorderHelper.startMonitoring();
 }
 
 /**
  * Остановить мониторинг прерываний
  */
 export async function stopMonitoring(): Promise<void> {
-  return await ExpoAudioInterruption.stopMonitoring();
+  return await AudioRecorderHelper.stopMonitoring();
 }
 
 /**
  * Проверить активен ли мониторинг
  */
 export async function isMonitoring(): Promise<boolean> {
-  return await ExpoAudioInterruption.isMonitoring();
+  return await AudioRecorderHelper.isMonitoring();
 }
 
 // ============================================================
@@ -80,25 +68,30 @@ export async function isMonitoring(): Promise<boolean> {
 
 /**
  * Запросить аудио фокус
- * 
- * @returns true если фокус получен
  */
 export async function requestAudioFocus(): Promise<boolean> {
-  return await ExpoAudioInterruption.requestAudioFocus();
+  return await AudioRecorderHelper.requestAudioFocus();
 }
 
 /**
  * Освободить аудио фокус
  */
 export async function abandonAudioFocus(): Promise<void> {
-  return await ExpoAudioInterruption.abandonAudioFocus();
+  return await AudioRecorderHelper.abandonAudioFocus();
 }
 
 /**
  * Проверить есть ли аудио фокус
  */
 export async function hasAudioFocus(): Promise<boolean> {
-  return await ExpoAudioInterruption.hasAudioFocus();
+  return await AudioRecorderHelper.hasAudioFocus();
+}
+
+/**
+ * Получить текущее состояние аудио системы
+ */
+export async function getAudioState(): Promise<AudioState> {
+  return await AudioRecorderHelper.getAudioState();
 }
 
 // ============================================================
@@ -109,7 +102,7 @@ export async function hasAudioFocus(): Promise<boolean> {
  * Получить состояние Bluetooth аудио
  */
 export async function getBluetoothState(): Promise<BluetoothState> {
-  return await ExpoAudioInterruption.getBluetoothState();
+  return await AudioRecorderHelper.getBluetoothState();
 }
 
 /**
@@ -128,7 +121,99 @@ export async function hasBluetoothHeadset(): Promise<boolean> {
  * Получить список доступных микрофонов
  */
 export async function getAvailableMicrophones(): Promise<MicrophoneInfo[]> {
-  return await ExpoAudioInterruption.getAvailableMicrophones();
+  return await AudioRecorderHelper.getAvailableMicrophones();
+}
+
+/**
+ * Получить активный микрофон (выбранный или автоматически определённый)
+ */
+export async function getActiveMicrophone(): Promise<MicrophoneInfo | null> {
+  return await AudioRecorderHelper.getActiveMicrophone();
+}
+
+/**
+ * Получить вручную выбранный микрофон (null если автовыбор)
+ */
+export async function getSelectedMicrophone(): Promise<MicrophoneInfo | null> {
+  return await AudioRecorderHelper.getSelectedMicrophone();
+}
+
+/**
+ * Выбрать микрофон по ID
+ * 
+ * @param id - ID микрофона или null для автовыбора
+ * @returns результат выбора
+ * 
+ * @example
+ * ```ts
+ * // Выбрать конкретный микрофон
+ * const mics = await getAvailableMicrophones();
+ * const result = await selectMicrophone(mics[1].id);
+ * 
+ * // Сбросить на автовыбор
+ * await selectMicrophone(null);
+ * ```
+ */
+export async function selectMicrophone(id: number | null): Promise<MicrophoneSelectionResult> {
+  return await AudioRecorderHelper.selectMicrophone(id);
+}
+
+/**
+ * Выбрать микрофон по типу
+ * 
+ * @param type - тип микрофона (используйте MicrophoneTypes)
+ * @returns результат выбора
+ * 
+ * @example
+ * ```ts
+ * import { selectMicrophoneByType, MicrophoneTypes } from 'audio-recorder-helper';
+ * 
+ * // Выбрать Bluetooth микрофон
+ * await selectMicrophoneByType(MicrophoneTypes.BLUETOOTH_SCO);
+ * 
+ * // Выбрать встроенный микрофон
+ * await selectMicrophoneByType(MicrophoneTypes.BUILTIN_MIC);
+ * ```
+ */
+export async function selectMicrophoneByType(type: number): Promise<MicrophoneSelectionResult> {
+  return await AudioRecorderHelper.selectMicrophoneByType(type);
+}
+
+/**
+ * Сбросить выбор микрофона на автоматический
+ * 
+ * @returns результат (автоматически выбранный микрофон)
+ */
+export async function resetMicrophoneSelection(): Promise<MicrophoneSelectionResult> {
+  return await AudioRecorderHelper.resetMicrophoneSelection();
+}
+
+/**
+ * Проверить выбран ли микрофон вручную
+ */
+export async function isManualMicrophoneSelection(): Promise<boolean> {
+  return await AudioRecorderHelper.isManualMicrophoneSelection();
+}
+
+/**
+ * Проверить доступен ли Bluetooth микрофон
+ */
+export async function hasBluetoothMicrophone(): Promise<boolean> {
+  const mics = await getAvailableMicrophones();
+  return mics.some(m => m.typeName === 'BLUETOOTH_SCO' || m.type === 7);
+}
+
+/**
+ * Проверить доступен ли проводной микрофон
+ */
+export async function hasWiredMicrophone(): Promise<boolean> {
+  const mics = await getAvailableMicrophones();
+  return mics.some(m => 
+    m.typeName === 'WIRED_HEADSET' || 
+    m.typeName === 'USB_HEADSET' ||
+    m.type === 3 || 
+    m.type === 22
+  );
 }
 
 // ============================================================
@@ -139,7 +224,14 @@ export async function getAvailableMicrophones(): Promise<MicrophoneInfo[]> {
  * Проверить идёт ли телефонный звонок
  */
 export async function isInPhoneCall(): Promise<boolean> {
-  return await ExpoAudioInterruption.isInPhoneCall();
+  return await AudioRecorderHelper.isInPhoneCall();
+}
+
+/**
+ * Проверить есть ли активное воспроизведение медиа
+ */
+export async function hasActiveMediaPlayback(): Promise<boolean> {
+  return await AudioRecorderHelper.hasActiveMediaPlayback();
 }
 
 /**
@@ -170,24 +262,6 @@ export function canContinueRecording(source: InterruptionSource): boolean {
 
 /**
  * Подписаться на прерывания
- * 
- * @example
- * ```ts
- * const subscription = addInterruptionListener((info) => {
- *   console.log(`Interruption: ${info.source}, policy: ${info.policy}`);
- *   
- *   if (info.policy === 'PAUSE') {
- *     // Рекомендуется приостановить запись
- *     await pauseRecording();
- *   } else if (info.policy === 'CONTINUE') {
- *     // Можно продолжить, но стоит уведомить пользователя
- *     showNotification(info.message);
- *   }
- * });
- * 
- * // Отписаться
- * subscription.remove();
- * ```
  */
 export function addInterruptionListener(
   callback: (info: InterruptionInfo) => void
@@ -197,18 +271,6 @@ export function addInterruptionListener(
 
 /**
  * Подписаться на окончание прерываний
- * 
- * @example
- * ```ts
- * addInterruptionEndListener((event) => {
- *   console.log(`Interruption ended: ${event.source}`);
- *   
- *   // Можно возобновить запись
- *   if (shouldPauseRecording(event.source)) {
- *     await resumeRecording();
- *   }
- * });
- * ```
  */
 export function addInterruptionEndListener(
   callback: (event: InterruptionEndEvent) => void
@@ -225,30 +287,26 @@ export function addPhoneCallListener(
   return emitter.addListener('onPhoneCall', callback);
 }
 
-// ============================================================
-// ХЕЛПЕРЫ ДЛЯ ИНТЕГРАЦИИ С РЕКОРДЕРОМ
-// ============================================================
+/**
+ * Подписаться на изменения аудио фокуса
+ */
+export function addAudioFocusListener(
+  callback: (event: AudioFocusEvent) => void
+): Subscription {
+  return emitter.addListener('onAudioFocusChanged', callback);
+}
+
+/**
+ * Подписаться на изменения микрофона
+ */
+export function addMicrophoneChangedListener(
+  callback: (info: MicrophoneInfo) => void
+): Subscription {
+  return emitter.addListener('onMicrophoneChanged', callback);
+}
 
 /**
  * Создать обработчик прерываний для рекордера
- * 
- * @example
- * ```ts
- * import * as Recorder from 'expo-audio-recorder-core';
- * import * as Interruption from 'expo-audio-interruption';
- * 
- * const handler = Interruption.createRecorderHandler({
- *   onPause: () => Recorder.pauseRecording(),
- *   onResume: () => Recorder.resumeRecording(),
- *   onNotify: (message) => showToast(message),
- * });
- * 
- * // Подключить
- * handler.start();
- * 
- * // Отключить
- * handler.stop();
- * ```
  */
 export function createRecorderHandler(options: {
   onPause: () => void | Promise<void>;
@@ -262,10 +320,10 @@ export function createRecorderHandler(options: {
   return {
     start: () => {
       interruptionSub = addInterruptionListener(async (info) => {
-        if (info.policy === 'PAUSE') {
+        if (info.policy === 'PAUSE_AUTO') {
           pausedBy = info.source;
           await options.onPause();
-        } else if (info.policy === 'CONTINUE' && options.onNotify) {
+        } else if (info.policy === 'CONTINUE_NOTIFY' && options.onNotify) {
           options.onNotify(info.message);
         }
       });
@@ -289,4 +347,37 @@ export function createRecorderHandler(options: {
       stopMonitoring();
     },
   };
+}
+
+/**
+ * Получить человекочитаемое описание источника прерывания
+ */
+export function getSourceDescription(source: InterruptionSource): string {
+  switch (source) {
+    case 'PHONE_CALL': return 'Телефонный звонок';
+    case 'VOIP_CALL': return 'VoIP звонок';
+    case 'VOICE_ASSISTANT': return 'Голосовой ассистент';
+    case 'VOICE_RECORDER': return 'Другой диктофон';
+    case 'MUSIC_PLAYER': return 'Музыкальный плеер';
+    case 'VIDEO_PLAYER': return 'Видео';
+    case 'GAME': return 'Игра';
+    case 'NAVIGATION': return 'Навигация';
+    case 'NOTIFICATION': return 'Уведомление';
+    default: return 'Неизвестно';
+  }
+}
+
+/**
+ * Получить человекочитаемое название типа микрофона
+ */
+export function getMicrophoneTypeName(type: number): string {
+  switch (type) {
+    case 15: return 'Встроенный микрофон';
+    case 7: return 'Bluetooth гарнитура';
+    case 3: return 'Проводная гарнитура';
+    case 22: return 'USB гарнитура';
+    case 11: return 'USB устройство';
+    case 18: return 'Телефония';
+    default: return 'Неизвестный';
+  }
 }

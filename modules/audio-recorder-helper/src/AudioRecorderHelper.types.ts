@@ -1,124 +1,122 @@
-
-/**
- * Источники прерываний
- */
 export type InterruptionSource =
   | 'PHONE_CALL'       // Телефонный звонок
-  | 'VOIP_CALL'        // VoIP (WhatsApp, Telegram, Zoom)
+  | 'VOIP_CALL'        // VoIP (WhatsApp, Telegram)
   | 'VOICE_ASSISTANT'  // Голосовой ассистент
   | 'VOICE_RECORDER'   // Другой диктофон
-  | 'MUSIC_PLAYER'     // Музыкальный плеер
-  | 'VIDEO_PLAYER'     // Видео приложение
+  | 'MUSIC_PLAYER'     // Музыка
+  | 'VIDEO_PLAYER'     // Видео
   | 'GAME'             // Игра
   | 'NAVIGATION'       // Навигация
   | 'NOTIFICATION'     // Уведомление
-  | 'UNKNOWN';         // Неизвестно
+  | 'UNKNOWN';
 
-/**
- * Политики обработки прерываний
- */
+// ==================== Policies ====================
+
 export type InterruptionPolicy =
-  | 'PAUSE'     // Рекомендуется пауза
-  | 'CONTINUE'  // Можно продолжить
-  | 'IGNORE';   // Игнорировать
+  | 'PAUSE_AUTO'       // Пауза с автовозобновлением
+  | 'CONTINUE_NOTIFY'  // Продолжить + уведомление
+  | 'CONTINUE_SILENT'; // Продолжить молча
 
-/**
- * Информация о прерывании
- */
+// ==================== Events ====================
+
 export interface InterruptionInfo {
-  /** Источник прерывания */
   source: InterruptionSource;
-  
-  /** Рекомендуемая политика */
   policy: InterruptionPolicy;
-  
-  /** Тип потери фокуса (Android AudioManager константа) */
   focusChange: number;
-  
-  /** Человекочитаемое сообщение */
   message: string;
 }
 
-/**
- * Событие окончания прерывания
- */
 export interface InterruptionEndEvent {
-  /** Источник прерывания который закончился */
   source: InterruptionSource;
 }
 
-/**
- * Событие телефонного звонка
- */
 export interface PhoneCallEvent {
-  /** Состояние: "started" или "ended" */
   state: 'started' | 'ended';
 }
 
-/**
- * Состояние Bluetooth
- */
+export interface AudioFocusEvent {
+  focusChange: number;
+  focusName: string;
+  hasFocus: boolean;
+}
+
+export interface AudioState {
+  mode: number;
+  modeName: string;
+  isMusicActive: boolean;
+  isSpeakerphoneOn: boolean;
+  isBluetoothScoOn: boolean;
+  isBluetoothA2dpOn: boolean;
+  ringerMode: number;
+}
+
+// ==================== Bluetooth ====================
+
 export interface BluetoothState {
-  /** Подключено ли Bluetooth устройство */
   isConnected: boolean;
-  
-  /** Это наушники с микрофоном */
   isHeadset: boolean;
-  
-  /** Это колонка без микрофона */
   isSpeaker: boolean;
-  
-  /** Название устройства */
   deviceName?: string;
 }
 
-/**
- * Информация о микрофоне
- */
+// ==================== Microphones ====================
+
 export interface MicrophoneInfo {
-  /** ID устройства */
   id: number;
-  
-  /** Тип устройства (AudioDeviceInfo константа) */
   type: number;
-  
-  /** Название типа */
   typeName: string;
-  
-  /** Название устройства */
   name: string;
-  
-  /** Это микрофон по умолчанию */
   isDefault: boolean;
+  isSelected: boolean;
+  address: string | null;
+  channelCounts: number[];
+  sampleRates: number[];
 }
 
-/**
- * Подписка на событие
- */
+export type MicrophoneType =
+  | 'BUILTIN_MIC'
+  | 'BLUETOOTH_SCO'
+  | 'WIRED_HEADSET'
+  | 'USB_HEADSET'
+  | 'USB_DEVICE'
+  | 'TELEPHONY'
+  | 'UNKNOWN';
+
+/** Результат выбора микрофона */
+export interface MicrophoneSelectionResult {
+  success: boolean;
+  microphone: MicrophoneInfo | null;
+  error?: string;
+}
+
+/** Типы микрофонов для удобного выбора */
+export const MicrophoneTypes = {
+  BUILTIN_MIC: 15,       // AudioDeviceInfo.TYPE_BUILTIN_MIC
+  BLUETOOTH_SCO: 7,      // AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+  WIRED_HEADSET: 3,      // AudioDeviceInfo.TYPE_WIRED_HEADSET
+  USB_HEADSET: 22,       // AudioDeviceInfo.TYPE_USB_HEADSET
+  USB_DEVICE: 11,        // AudioDeviceInfo.TYPE_USB_DEVICE
+  TELEPHONY: 18,         // AudioDeviceInfo.TYPE_TELEPHONY
+} as const;
+
+// ==================== Subscription ====================
+
 export interface Subscription {
   remove(): void;
 }
 
-/**
- * Константы типов потери фокуса
- */
+// ==================== Constants ====================
+
 export const AudioFocusChange = {
-  /** Постоянная потеря фокуса */
   AUDIOFOCUS_LOSS: -1,
-  
-  /** Временная потеря фокуса */
   AUDIOFOCUS_LOSS_TRANSIENT: -2,
-  
-  /** Можно приглушить */
   AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: -3,
-  
-  /** Фокус получен */
   AUDIOFOCUS_GAIN: 1,
+  AUDIOFOCUS_GAIN_TRANSIENT: 2,
+  AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK: 3,
+  AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE: 4,
 } as const;
 
-/**
- * Константы источников прерываний
- */
 export const InterruptionSources = {
   PHONE_CALL: 'PHONE_CALL',
   VOIP_CALL: 'VOIP_CALL',
@@ -132,25 +130,20 @@ export const InterruptionSources = {
   UNKNOWN: 'UNKNOWN',
 } as const;
 
-/**
- * Константы политик
- */
 export const InterruptionPolicies = {
-  PAUSE: 'PAUSE',
-  CONTINUE: 'CONTINUE',
-  IGNORE: 'IGNORE',
+  PAUSE_AUTO: 'PAUSE_AUTO',
+  CONTINUE_NOTIFY: 'CONTINUE_NOTIFY',
+  CONTINUE_SILENT: 'CONTINUE_SILENT',
 } as const;
 
-export type AudioRecorderHelperModuleEvents = {
-  // Существующие события
-  // onRecordingStateChanged: (status: RecordingStatus) => void;
-  // onAudioChunk: (chunk: AudioChunk) => void;
-  // onRecordingError: (error: { code: string; message: string }) => void;
-  
-  // // НОВОЕ: Унифицированное событие записи
-  // onRecordingEvent: (event: RecordingEvent) => void;
+// ==================== Module Events ====================
 
-  onInterruption: (interruptionInfo : InterruptionInfo) => void;
+export type AudioRecorderHelperEvents = {
+  onInterruption: (info: InterruptionInfo) => void;
   onInterruptionEnd: (event: InterruptionEndEvent) => void;
   onPhoneCall: (event: PhoneCallEvent) => void;
+  onBluetoothChange: (state: BluetoothState) => void;
+  onAudioFocusChanged: (event: AudioFocusEvent) => void;
+  onAudioStateChanged: (state: AudioState) => void;
+  onMicrophoneChanged: (info: MicrophoneInfo) => void;
 };

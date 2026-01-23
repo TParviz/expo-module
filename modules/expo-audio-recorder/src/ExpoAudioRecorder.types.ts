@@ -1,135 +1,152 @@
-/**
- * expo-audio-recorder - TypeScript Types
- * 
- * Чистый рекордер без логики прерываний.
- */
+// ==================== Recording ====================
 
-/**
- * Конфигурация записи
- */
-export interface RecordingOptions {
-  /** Sample rate в Hz (по умолчанию 44100) */
-  sampleRate?: number;
-  
-  /** Bit rate в bps (по умолчанию 128000) */
-  bitRate?: number;
-  
-  /** Количество каналов: 1 (mono) или 2 (stereo) */
-  channels?: number;
-  
-  /** Включить стриминг аудио чанков */
-  enableChunking?: boolean;
-  
-  /** Длительность чанка в мс (по умолчанию 1000) */
-  chunkDuration?: number;
-}
+export type RecordingState = 'idle' | 'recording' | 'paused';
 
-/**
- * Результат записи
- */
-export interface RecordingResult {
-  /** Путь к записанному файлу */
+export type RecordingConfig = {
+  sampleRate?: number;      // Default: 44100
+  bitRate?: number;         // Default: 128000
+  channels?: number;        // Default: 1 (mono)
+  enableChunking?: boolean; // Default: false
+  chunkDuration?: number;   // Duration in ms, default: 1000
+  microphoneId?: number;    // ID микрофона (null = автовыбор)
+};
+
+export type RecordingResult = {
   filePath: string;
-  
-  /** Длительность в секундах */
+  duration: number;  // seconds
+  fileSize: number;  // bytes
+};
+
+export type RecordingStatus = {
+  state: RecordingState;
+  filePath: string | null;
   duration: number;
-  
-  /** Размер файла в байтах */
+  isRecording: boolean;
+  isPaused: boolean;
+  noiseLevel: number;  // dB, -160 to 0
+};
+
+// ==================== Recovery ====================
+
+export type RecoveryResult = {
+  filePath: string;
+  originalPath: string;
+  duration: number;
   fileSize: number;
-}
-
-/**
- * Текущий статус записи
- */
-export interface RecordingStatus {
-  /** Состояние: "idle", "recording", "paused" */
-  state: 'idle' | 'recording' | 'paused';
-  
-  /** Путь к файлу (если запись активна) */
-  filePath?: string;
-  
-  /** Текущая длительность в секундах */
-  duration: number;
-  
-  /** Идёт ли запись */
-  isRecording: boolean;
-  
-  /** На паузе ли запись */
-  isPaused: boolean;
-  
-  /** Уровень шума в dB */
-  noiseLevel: number;
-}
-
-/**
- * Аудио чанк для real-time обработки
- */
-export interface AudioChunk {
-  /** PCM данные в формате Float32 (-1.0 to 1.0) */
-  data: number[];
-  
-  /** Sample rate чанка (обычно 16000) */
-  sampleRate: number;
-  
-  /** Timestamp в миллисекундах */
   timestamp: number;
-}
+  recovered: boolean;
+};
 
-/**
- * Ответ на запрос разрешений
- */
-export interface PermissionResponse {
-  /** Разрешение получено */
+// ==================== Audio Chunk ====================
+
+export type AudioChunk = {
+  data: number[];      // PCM data (float, -1 to 1)
+  sampleRate: number;  // 16000
+  timestamp: number;
+};
+
+// ==================== Microphones ====================
+
+export type MicrophoneInfo = {
+  id: number;
+  type: number;
+  typeName: string;
+  name: string;
+  isDefault: boolean;
+  address: string | null;
+  channelCounts: number[];
+  sampleRates: number[];
+};
+
+export type MicrophoneType =
+  | 'BUILTIN_MIC'
+  | 'BLUETOOTH_SCO'
+  | 'WIRED_HEADSET'
+  | 'USB_HEADSET'
+  | 'USB_DEVICE'
+  | 'TELEPHONY'
+  | 'UNKNOWN';
+
+// ==================== Permissions ====================
+
+export type PermissionResponse = {
   granted: boolean;
-  
-  /** Статус: "granted", "denied", "undetermined" */
-  status: 'granted' | 'denied' | 'undetermined';
-}
+  canRequest: boolean;
+};
 
-/**
- * Событие изменения состояния записи
- */
-export interface RecordingStateChangedEvent {
-  state: 'idle' | 'recording' | 'paused';
-  filePath?: string;
-  duration: number;
-  isRecording: boolean;
-  isPaused: boolean;
-  noiseLevel: number;
-}
-
-/**
- * Событие записи
- */
-export interface RecordingEvent {
-  type: RecordingEventType;
-  filePath?: string;
-  duration?: number;
-  fileSize?: number;
-  message?: string;
-}
+// ==================== Events ====================
 
 /**
  * Типы событий записи
  */
 export type RecordingEventType =
-  | 'completed'     // Запись успешно завершена
-  | 'canceled'      // Запись отменена
-  | 'error';        // Ошибка записи
+  // Запись
+  | 'completed'           // Запись завершена
+  | 'canceled'            // Запись отменена
+  | 'error'               // Ошибка 
+  | 'audioFileError'      // Ошибка файла
+  
+  // Микрофон
+  | 'cantHearMicrophone'  // Тишина > 3 сек
+  
+  // Чанки
+  | 'chunk'               // Новый чанк
+  | 'chunkWasLost'        // Чанк потерян
+  
+  // Recovery
+  | 'recoveryCompleted'   // Восстановление завершено
+  
+  // Microphones
+  | 'microphonesDetected'       // Обнаружены микрофоны
+  | 'microphoneSelected'        // Микрофон выбран для записи
+  | 'microphoneSelectionFailed'; // Не удалось выбрать микрофон
 
 /**
- * Подписка на событие
+ * Событие записи
  */
-export interface Subscription {
-  remove(): void;
-}
+export type RecordingEvent = {
+  type: RecordingEventType;
+  timestamp: number;
+  
+  // Для 'completed', 'recoveryCompleted'
+  filePath?: string;
+  duration?: number;
+  fileSize?: number;
+  
+  // Для 'cantHearMicrophone'
+  silenceDuration?: number;
+  
+  // Для 'chunk'
+  chunkIndex?: number;
+  chunkData?: number[];
+  
+  // Для 'chunkWasLost', 'audioFileError'
+  error?: {
+    code: string;
+    message: string;
+  };
+  
+  // Для 'microphonesDetected'
+  microphones?: MicrophoneInfo[];
+  activeMicrophone?: MicrophoneInfo;
+  
+  // Для 'microphoneSelected', 'microphoneSelectionFailed'
+  id?: number;
+  name?: string;
+  reason?: string;
+};
+
+// ==================== Module Events ====================
 
 export type ExpoAudioRecorderModuleEvents = {
-  // Существующие события
   onRecordingStateChanged: (status: RecordingStatus) => void;
   onAudioChunk: (chunk: AudioChunk) => void;
   onRecordingError: (error: { code: string; message: string }) => void;
-  
-  // НОВОЕ: Унифицированное событие записи
   onRecordingEvent: (event: RecordingEvent) => void;
 };
+
+// ==================== Subscription ====================
+
+export interface Subscription {
+  remove(): void;
+}

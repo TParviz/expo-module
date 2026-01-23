@@ -8,6 +8,9 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <!-- Phone state for handling calls -->
   <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+  
+  <uses-permission android:name="android.permission.BLUETOOTH"/>
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
 
     <!-- Usage stats for detecting foreground app -->
   <!-- <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"

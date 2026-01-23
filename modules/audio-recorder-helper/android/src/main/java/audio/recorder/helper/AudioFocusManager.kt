@@ -9,8 +9,6 @@ import android.util.Log
 
 /**
  * Менеджер аудио фокуса
- * 
- * Запрашивает и отслеживает аудио фокус Android.
  */
 class AudioFocusManager(
     private val context: Context,
@@ -22,13 +20,27 @@ class AudioFocusManager(
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    
+
     private var focusRequest: AudioFocusRequest? = null
     private var hasFocus = false
 
+    // Callback для событий фокуса (для отладки)
+    private var focusEventCallback: ((String, Map<String, Any?>) -> Unit)? = null
+
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        Log.d(TAG, "Focus change: $focusChange")
-        
+        Log.d(TAG, "Focus change: $focusChange (${getFocusName(focusChange)})")
+
+        // Отправляем событие для отладки
+        focusEventCallback?.invoke(
+            "audioFocusChanged", mapOf(
+                "focusChange" to focusChange,
+                "focusName" to getFocusName(focusChange),
+                "hasFocus" to (focusChange == AudioManager.AUDIOFOCUS_GAIN ||
+                        focusChange == AudioManager.AUDIOFOCUS_GAIN_TRANSIENT ||
+                        focusChange == AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            )
+        )
+
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN,
             AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
@@ -37,7 +49,7 @@ class AudioFocusManager(
                 hasFocus = true
                 onFocusGained()
             }
-            
+
             AudioManager.AUDIOFOCUS_LOSS,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
@@ -45,6 +57,13 @@ class AudioFocusManager(
                 onFocusLost(focusChange)
             }
         }
+    }
+
+    /**
+     * Установить callback для событий фокуса
+     */
+    fun setFocusEventCallback(callback: (String, Map<String, Any?>) -> Unit) {
+        focusEventCallback = callback
     }
 
     /**
@@ -80,6 +99,21 @@ class AudioFocusManager(
      */
     fun hasFocus(): Boolean = hasFocus
 
+    /**
+     * Получить текущее состояние аудио системы
+     */
+    fun getAudioState(): Map<String, Any?> {
+        return mapOf(
+            "mode" to audioManager.mode,
+            "modeName" to getModeName(audioManager.mode),
+            "isMusicActive" to audioManager.isMusicActive,
+            "isSpeakerphoneOn" to audioManager.isSpeakerphoneOn,
+            "isBluetoothScoOn" to audioManager.isBluetoothScoOn,
+            "isBluetoothA2dpOn" to audioManager.isBluetoothA2dpOn,
+            "ringerMode" to audioManager.ringerMode
+        )
+    }
+
     private fun requestFocusApi26(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
 
@@ -97,7 +131,7 @@ class AudioFocusManager(
 
         val result = audioManager.requestAudioFocus(focusRequest!!)
         hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        
+
         Log.d(TAG, "Audio focus requested (API 26+): result=$result, hasFocus=$hasFocus")
         return hasFocus
     }
@@ -110,8 +144,31 @@ class AudioFocusManager(
             AudioManager.AUDIOFOCUS_GAIN
         )
         hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        
+
         Log.d(TAG, "Audio focus requested (legacy): result=$result, hasFocus=$hasFocus")
         return hasFocus
+    }
+
+    private fun getFocusName(focusChange: Int): String {
+        return when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> "GAIN"
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT -> "GAIN_TRANSIENT"
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> "GAIN_TRANSIENT_MAY_DUCK"
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE -> "GAIN_TRANSIENT_EXCLUSIVE"
+            AudioManager.AUDIOFOCUS_LOSS -> "LOSS"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "LOSS_TRANSIENT"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "LOSS_TRANSIENT_CAN_DUCK"
+            else -> "UNKNOWN($focusChange)"
+        }
+    }
+
+    private fun getModeName(mode: Int): String {
+        return when (mode) {
+            AudioManager.MODE_NORMAL -> "NORMAL"
+            AudioManager.MODE_RINGTONE -> "RINGTONE"
+            AudioManager.MODE_IN_CALL -> "IN_CALL"
+            AudioManager.MODE_IN_COMMUNICATION -> "IN_COMMUNICATION"
+            else -> "UNKNOWN($mode)"
+        }
     }
 }

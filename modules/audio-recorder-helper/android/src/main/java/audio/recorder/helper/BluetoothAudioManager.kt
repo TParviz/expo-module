@@ -1,7 +1,6 @@
 package audio.recorder.helper
 
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothProfile
 import android.content.Context
@@ -13,15 +12,13 @@ import android.util.Log
  */
 data class BluetoothState(
     val isConnected: Boolean,
-    val isHeadset: Boolean,      // Наушники с микрофоном
-    val isSpeaker: Boolean,      // Колонка без микрофона
+    val isBluetoothHeadset: Boolean,  // Наушники с микрофоном
+    val isBluetoothSpeaker: Boolean,  // Колонка без микрофона
     val deviceName: String?
 )
 
 /**
  * Менеджер Bluetooth аудио
- * 
- * Определяет тип подключённого Bluetooth устройства.
  */
 class BluetoothAudioManager(private val context: Context) {
     companion object {
@@ -50,7 +47,6 @@ class BluetoothAudioManager(private val context: Context) {
     }
 
     init {
-        // Подключаемся к Bluetooth Headset профилю
         bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.HEADSET)
     }
 
@@ -60,18 +56,18 @@ class BluetoothAudioManager(private val context: Context) {
     fun getBluetoothState(): BluetoothState {
         val isBluetoothScoOn = audioManager.isBluetoothScoOn
         val isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn
-        
+
         val connectedHeadsets = headsetProfile?.connectedDevices ?: emptyList()
         val hasHeadset = connectedHeadsets.isNotEmpty() || isBluetoothScoOn
-        
+
         val deviceName = connectedHeadsets.firstOrNull()?.name
 
         Log.d(TAG, "Bluetooth state: sco=$isBluetoothScoOn, a2dp=$isBluetoothA2dpOn, headsets=${connectedHeadsets.size}")
 
         return BluetoothState(
             isConnected = isBluetoothScoOn || isBluetoothA2dpOn || hasHeadset,
-            isHeadset = hasHeadset,
-            isSpeaker = isBluetoothA2dpOn && !hasHeadset,
+            isBluetoothHeadset = hasHeadset,
+            isBluetoothSpeaker = isBluetoothA2dpOn && !hasHeadset,
             deviceName = deviceName
         )
     }
@@ -80,14 +76,14 @@ class BluetoothAudioManager(private val context: Context) {
      * Проверить есть ли Bluetooth наушники с микрофоном
      */
     fun hasBluetoothHeadset(): Boolean {
-        return getBluetoothState().isHeadset
+        return getBluetoothState().isBluetoothHeadset
     }
 
     /**
      * Проверить есть ли Bluetooth колонка
      */
     fun hasBluetoothSpeaker(): Boolean {
-        return getBluetoothState().isSpeaker
+        return getBluetoothState().isBluetoothSpeaker
     }
 
     /**

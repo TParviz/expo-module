@@ -1,139 +1,150 @@
 package expo.modules.audiorecorder
 
 import android.Manifest
-import android.content.Context
+import android.os.Build
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import expo.modules.kotlin.Promise
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
 /**
- * Expo Native Module для аудио рекордера
+ * ExpoAudioRecorderModule - Expo Native Module для записи аудио
  * 
- * Экспортирует методы записи в JavaScript.
+ * Функции:
+ * - Запись аудио с сохранением сырых PCM данных
+ * - Автоматическое восстановление после force-kill
+ * - Стриминг аудио чанков
+ * - Детекция тишины
+ * - Выбор микрофона
  */
 class ExpoAudioRecorderModule : Module() {
-    private val moduleScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var recorderService: AudioRecorderService? = null
+
+    private val moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var audioRecorderService: AudioRecorderService? = null
 
     private val context
         get() = requireNotNull(appContext.reactContext) { "React context is null" }
 
-    override fun definition() = ModuleDefinition {
-        Name("ExpoAudioRecorderCore")
+    private fun getService(): AudioRecorderService {
+        if (audioRecorderService == null) {
+            audioRecorderService = AudioRecorderService(
+                context = context,
+                scope = moduleScope,
+                eventEmitter = { eventName, params ->
+                    sendEvent(eventName, params)
+                }
+            )
+        }
+        return audioRecorderService!!
+    }
 
+    override fun definition() = ModuleDefinition {
+        Name("ExpoAudioRecorder")
+
+        // События
         Events(
             "onRecordingStateChanged",
             "onAudioChunk",
+            "onRecordingError",
             "onRecordingEvent"
         )
 
-        OnCreate {
-            recorderService = AudioRecorderService(
-                context = context,
-                scope = moduleScope,
-                eventEmitter = { name, data -> sendEvent(name, data) }
-            )
-        }
+        // ==================== Permissions ====================
 
-        OnDestroy {
-            recorderService?.release()
-            recorderService = null
-        }
-
-        // === Разрешения ===
-        
         AsyncFunction("requestPermissions") { promise: Promise ->
             try {
                 val hasPermission = ContextCompat.checkSelfPermission(
                     context,
                     Manifest.permission.RECORD_AUDIO
                 ) == PackageManager.PERMISSION_GRANTED
-                
+
+                val canRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val activity = appContext.currentActivity
+                    if (activity != null && !hasPermission) {
+                        !activity.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+
                 promise.resolve(mapOf(
                     "granted" to hasPermission,
-                    "status" to if (hasPermission) "granted" else "denied"
+                    "canRequest" to canRequest
                 ))
             } catch (e: Exception) {
                 promise.reject("PERMISSION_ERROR", e.message, e)
             }
         }
 
-        // === Запись ===
+        // ==================== Core Recording ====================
 
-        AsyncFunction("startRecording") { options: Map<String, Any?>, promise: Promise ->
+        AsyncFunction("startRecording") { config: Map<String, Any?>, promise: Promise ->
             try {
-                val config = RecordingConfig(
-                    sampleRate = (options["sampleRate"] as? Number)?.toInt() ?: 44100,
-                    bitRate = (options["bitRate"] as? Number)?.toInt() ?: 128000,
-                    channels = (options["channels"] as? Number)?.toInt() ?: 1,
-                    enableChunking = options["enableChunking"] as? Boolean ?: false,
-                    chunkDuration = (options["chunkDuration"] as? Number)?.toInt() ?: 1000
+                val recordingConfig = RecordingConfig(
+                    sampleRate = (config["sampleRate"] as? Number)?.toInt() ?: 44100,
+                    bitRate = (config["bitRate"] as? Number)?.toInt() ?: 128000,
+                    channels = (config["channels"] as? Number)?.toInt() ?: 1,
+                    enableChunking = (config["enableChunking"] as? Boolean) ?: false,
+                    chunkDuration = (config["chunkDuration"] as? Number)?.toInt() ?: 1000,
+                    microphoneId = (config["microphoneId"] as? Number)?.toInt()
                 )
-                
-                val filePath = recorderService?.startRecording(config)
-                    ?: throw IllegalStateException("Recorder not initialized")
-                
+
+                val filePath = getService().startRecording(recordingConfig)
                 promise.resolve(filePath)
             } catch (e: Exception) {
-                promise.reject("START_ERROR", e.message, e)
+                promise.reject("START_RECORDING_ERROR", e.message, e)
             }
         }
 
         AsyncFunction("stopRecording") { promise: Promise ->
             moduleScope.launch {
                 try {
-                    val result = recorderService?.stopRecording()
-                        ?: throw IllegalStateException("Recorder not initialized")
-                    
+                    val result = getService().stopRecording()
                     promise.resolve(mapOf(
                         "filePath" to result.filePath,
                         "duration" to result.duration,
                         "fileSize" to result.fileSize
                     ))
                 } catch (e: Exception) {
-                    promise.reject("STOP_ERROR", e.message, e)
+                    promise.reject("STOP_RECORDING_ERROR", e.message, e)
                 }
-            }
-        }
-
-        AsyncFunction("pauseRecording") { promise: Promise ->
-            try {
-                recorderService?.pauseRecording()
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("PAUSE_ERROR", e.message, e)
-            }
-        }
-
-        AsyncFunction("resumeRecording") { promise: Promise ->
-            try {
-                recorderService?.resumeRecording()
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("RESUME_ERROR", e.message, e)
             }
         }
 
         AsyncFunction("cancelRecording") { promise: Promise ->
             try {
-                recorderService?.cancelRecording()
+                getService().cancelRecording()
                 promise.resolve(null)
             } catch (e: Exception) {
-                promise.reject("CANCEL_ERROR", e.message, e)
+                promise.reject("CANCEL_RECORDING_ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("pauseRecording") { promise: Promise ->
+            try {
+                getService().pauseRecording()
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("PAUSE_RECORDING_ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("resumeRecording") { promise: Promise ->
+            try {
+                getService().resumeRecording()
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("RESUME_RECORDING_ERROR", e.message, e)
             }
         }
 
         AsyncFunction("getStatus") { promise: Promise ->
             try {
-                val status = recorderService?.getStatus()
-                    ?: RecordingStatus("idle", null, 0.0, false, false, -160.0)
-                
+                val status = getService().getStatus()
                 promise.resolve(mapOf(
                     "state" to status.state,
                     "filePath" to status.filePath,
@@ -147,27 +158,29 @@ class ExpoAudioRecorderModule : Module() {
             }
         }
 
-        // === Recovery ===
+        // ==================== Recovery ====================
 
         AsyncFunction("hasUnfinishedRecording") { promise: Promise ->
             try {
-                val has = recorderService?.hasUnfinishedRecording() ?: false
-                promise.resolve(has)
+                val hasUnfinished = getService().hasUnfinishedRecording()
+                promise.resolve(hasUnfinished)
             } catch (e: Exception) {
-                promise.reject("ERROR", e.message, e)
+                promise.reject("CHECK_UNFINISHED_ERROR", e.message, e)
             }
         }
 
         AsyncFunction("recoverUnfinishedRecording") { promise: Promise ->
             moduleScope.launch {
                 try {
-                    val result = recorderService?.recoverUnfinishedRecording()
-                    
+                    val result = getService().recoverUnfinishedRecording()
                     if (result != null) {
                         promise.resolve(mapOf(
                             "filePath" to result.filePath,
+                            "originalPath" to result.originalPath,
                             "duration" to result.duration,
-                            "fileSize" to result.fileSize
+                            "fileSize" to result.fileSize,
+                            "timestamp" to result.timestamp,
+                            "recovered" to result.recovered
                         ))
                     } else {
                         promise.resolve(null)
@@ -176,6 +189,68 @@ class ExpoAudioRecorderModule : Module() {
                     promise.reject("RECOVERY_ERROR", e.message, e)
                 }
             }
+        }
+
+        // ==================== Microphones ====================
+
+        AsyncFunction("getAvailableMicrophones") { promise: Promise ->
+            try {
+                val microphones = getService().getAvailableMicrophones()
+                promise.resolve(microphones.map { mic ->
+                    mapOf(
+                        "id" to mic.id,
+                        "type" to mic.type,
+                        "typeName" to mic.typeName,
+                        "name" to mic.name,
+                        "isDefault" to mic.isDefault,
+                        "address" to mic.address,
+                        "channelCounts" to mic.channelCounts,
+                        "sampleRates" to mic.sampleRates
+                    )
+                })
+            } catch (e: Exception) {
+                promise.reject("GET_MICROPHONES_ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("getActiveMicrophone") { promise: Promise ->
+            try {
+                val microphone = getService().getActiveMicrophone()
+                if (microphone != null) {
+                    promise.resolve(mapOf(
+                        "id" to microphone.id,
+                        "type" to microphone.type,
+                        "typeName" to microphone.typeName,
+                        "name" to microphone.name,
+                        "isDefault" to microphone.isDefault,
+                        "address" to microphone.address,
+                        "channelCounts" to microphone.channelCounts,
+                        "sampleRates" to microphone.sampleRates
+                    ))
+                } else {
+                    promise.resolve(null)
+                }
+            } catch (e: Exception) {
+                promise.reject("GET_ACTIVE_MICROPHONE_ERROR", e.message, e)
+            }
+        }
+
+        // ==================== Utilities ====================
+
+        AsyncFunction("isInGracePeriod") { promise: Promise ->
+            try {
+                promise.resolve(getService().isInGracePeriod())
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        // ==================== Cleanup ====================
+
+        OnDestroy {
+            audioRecorderService?.release()
+            audioRecorderService = null
+            moduleScope.cancel()
         }
     }
 }

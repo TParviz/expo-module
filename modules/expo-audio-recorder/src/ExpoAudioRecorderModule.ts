@@ -1,27 +1,40 @@
-import { requireNativeModule } from 'expo';
+import { NativeModule, requireNativeModule } from 'expo';
 
-// import {
-//     ExpoAudioRecorderModuleEvents,
-// } from './ExpoAudioRecorder.types';
+import {
+    ExpoAudioRecorderModuleEvents,
+    MicrophoneInfo,
+    PermissionResponse,
+    RecordingConfig,
+    RecordingResult,
+    RecordingStatus,
+    RecoveryResult,
+} from './ExpoAudioRecorder.types';
 
-// /**
-//  * Native module bridge для expo-audio-recorder-core
-//  */
+/**
+ * Native module bridge для expo-audio-recorder-core
+ */
 
-// declare class ExpoAudioRecorderModule extends NativeModule<ExpoAudioRecorderModuleEvents> {
-//     // Core recording methods
-//     pauseRecording(): Promise<void>;
-//     resumeRecording(): Promise<void>;
-//     cancelRecording(): Promise<void>; // НОВОЕ: Отмена записи
-  
-//     // Recovery methods
-//     hasUnfinishedRecordingAsync(): Promise<boolean>; // НОВОЕ
-//     deleteRecoveryFileAsync(path: string): Promise<boolean>;
-//     cleanOldRecoveryFilesAsync(daysToKeep: number): Promise<boolean>;
-    
-//     // File repair methods
-//     repairFileAsync(inputPath: string, outputPath: string): Promise<boolean>;
-//     canReadFileAsync(filePath: string): Promise<boolean>;
-// }
+declare class ExpoAudioRecorderModule extends NativeModule<ExpoAudioRecorderModuleEvents> {
+    requestPermissions(): Promise<PermissionResponse>;
+    startRecording(config: RecordingConfig): Promise<string>;
+    pauseRecording(): Promise<void>;
+    resumeRecording(): Promise<void>;
+    cancelRecording(): Promise<void>;
+    stopRecording(): Promise<RecordingResult>;
 
-export default requireNativeModule('ExpoAudioRecorder');
+    getStatus(): Promise<RecordingStatus>;
+    hasUnfinishedRecording(): Promise<boolean>;
+    recoverUnfinishedRecording(): Promise<RecoveryResult | null>;
+    getAvailableMicrophones(): Promise<MicrophoneInfo[]>;
+    getActiveMicrophone(): Promise<MicrophoneInfo | null>;
+    isInGracePeriod(): Promise<boolean>
+
+    // Convenience Helpers
+    initializeRecorder(): Promise<RecoveryResult | null>;
+    isRecording(): Promise<boolean>;
+    isPaused(): Promise<boolean>;
+    getDuration(): Promise<number>;
+    getNoiseLevel(): Promise<number>;
+}
+
+export default requireNativeModule<ExpoAudioRecorderModule>('ExpoAudioRecorder');
