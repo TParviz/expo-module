@@ -3,9 +3,6 @@ package audio.recorder.helper
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.filled.Preview
-import androidx.compose.material.icons.Icons
 
 /**
  * Expo Native Module для обработки аудио прерываний
