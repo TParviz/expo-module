@@ -3,9 +3,11 @@ import { NativeModule, requireNativeModule } from 'expo-modules-core';
 import {
   AudioRecorderHelperEvents,
   AudioState,
+  BluetoothPermissionStatus,
   BluetoothState,
   MicrophoneInfo,
-  MicrophoneSelectionResult
+  MicrophoneSelectionResult,
+  RecordingTimerStatus
 } from './AudioRecorderHelper.types';
   
 declare class AudioRecorderHelperModule extends NativeModule<AudioRecorderHelperEvents> {
@@ -22,6 +24,18 @@ declare class AudioRecorderHelperModule extends NativeModule<AudioRecorderHelper
 
   // === Bluetooth ===
   getBluetoothState(): Promise<BluetoothState>;
+  
+  /** Проверить наличие разрешений Bluetooth */
+  hasBluetoothPermission(): Promise<boolean>;
+  
+  /** Получить статус разрешений Bluetooth */
+  getBluetoothPermissionStatus(): Promise<BluetoothPermissionStatus>;
+  
+  /** Получить список необходимых разрешений для Bluetooth */
+  getBluetoothRequiredPermissions(): Promise<string[]>;
+  
+  /** Инициализировать Bluetooth после получения разрешений */
+  initializeBluetoothAfterPermission(): Promise<void>;
 
   // === Микрофоны ===
   getAvailableMicrophones(): Promise<MicrophoneInfo[]>;
@@ -43,6 +57,30 @@ declare class AudioRecorderHelperModule extends NativeModule<AudioRecorderHelper
   // === Утилиты ===
   isInPhoneCall(): Promise<boolean>;
   hasActiveMediaPlayback(): Promise<boolean>;
+
+  // === Recording Time Limit ===
+  
+  /** 
+   * Запустить таймер ограничения записи 
+   * @param maxDurationSeconds - максимальная длительность в секундах
+   * @param warningBeforeEndSeconds - предупредить за X секунд до конца (0 = без предупреждения)
+   */
+  startRecordingTimer(maxDurationSeconds: number, warningBeforeEndSeconds: number): Promise<void>;
+  
+  /** Остановить таймер (вызывается автоматически при достижении лимита) */
+  stopRecordingTimer(): Promise<void>;
+  
+  /** Пауза таймера (для паузы записи) */
+  pauseRecordingTimer(): Promise<void>;
+  
+  /** Возобновить таймер (после паузы) */
+  resumeRecordingTimer(): Promise<void>;
+  
+  /** Получить текущий статус таймера */
+  getRecordingTimerStatus(): Promise<RecordingTimerStatus>;
+  
+  /** Проверить активен ли таймер */
+  isRecordingTimerActive(): Promise<boolean>;
 }
 
 export default requireNativeModule<AudioRecorderHelperModule>('AudioRecorderHelper');

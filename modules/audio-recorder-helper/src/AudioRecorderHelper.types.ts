@@ -59,6 +59,12 @@ export interface BluetoothState {
   deviceName?: string;
 }
 
+/** Статус разрешений Bluetooth */
+export interface BluetoothPermissionStatus {
+  hasPermission: boolean;
+  missingPermissions: string[];
+}
+
 // ==================== Microphones ====================
 
 export interface MicrophoneInfo {
@@ -98,6 +104,58 @@ export const MicrophoneTypes = {
   USB_DEVICE: 11,        // AudioDeviceInfo.TYPE_USB_DEVICE
   TELEPHONY: 18,         // AudioDeviceInfo.TYPE_TELEPHONY
 } as const;
+
+// ==================== Recording Time Limit ====================
+
+/** Опции для ограничения времени записи */
+export interface RecordingTimeLimitOptions {
+  /** Максимальная длительность записи в секундах */
+  maxDurationSeconds: number;
+  /** Уведомить за X секунд до окончания (опционально) */
+  warningBeforeEndSeconds?: number;
+}
+
+/** Статус таймера записи */
+export interface RecordingTimerStatus {
+  /** Активен ли таймер */
+  isActive: boolean;
+  /** Прошло секунд с начала */
+  elapsedSeconds: number;
+  /** Осталось секунд до лимита */
+  remainingSeconds: number;
+  /** Максимальная длительность */
+  maxDurationSeconds: number;
+}
+
+/** Событие окончания времени записи */
+export interface RecordingTimeLimitReachedEvent {
+  /** Сколько секунд записывали */
+  elapsedSeconds: number;
+  /** Установленный лимит */
+  maxDurationSeconds: number;
+  /** Причина остановки */
+  reason: 'TIME_LIMIT_REACHED';
+}
+
+/** Событие предупреждения о скором окончании */
+export interface RecordingTimeWarningEvent {
+  /** Осталось секунд */
+  remainingSeconds: number;
+  /** Прошло секунд */
+  elapsedSeconds: number;
+  /** Максимальная длительность */
+  maxDurationSeconds: number;
+}
+
+/** Событие тика таймера (каждую секунду) */
+export interface RecordingTimerTickEvent {
+  /** Прошло секунд */
+  elapsedSeconds: number;
+  /** Осталось секунд */
+  remainingSeconds: number;
+  /** Максимальная длительность */
+  maxDurationSeconds: number;
+}
 
 // ==================== Subscription ====================
 
@@ -146,4 +204,8 @@ export type AudioRecorderHelperEvents = {
   onAudioFocusChanged: (event: AudioFocusEvent) => void;
   onAudioStateChanged: (state: AudioState) => void;
   onMicrophoneChanged: (info: MicrophoneInfo) => void;
+  // === Recording Time Limit Events ===
+  onRecordingTimeLimitReached: (event: RecordingTimeLimitReachedEvent) => void;
+  onRecordingTimeWarning: (event: RecordingTimeWarningEvent) => void;
+  onRecordingTimerTick: (event: RecordingTimerTickEvent) => void;
 };

@@ -3,12 +3,22 @@ package audio.recorder.helper
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.Preview
+import androidx.compose.material.icons.Icons
 
 /**
  * Expo Native Module для обработки аудио прерываний
  * 
  * Отслеживает прерывания и отправляет события в JavaScript.
  * Не управляет записью - только мониторинг.
+ * 
+ * Поддерживает:
+ * - Мониторинг аудио прерываний
+ * - Управление аудио фокусом
+ * - Работа с микрофонами
+ * - Bluetooth аудио
+ * - Ограничение времени записи
  */
 class AudioRecorderHelperModule : Module() {
     
@@ -17,6 +27,7 @@ class AudioRecorderHelperModule : Module() {
     private var phoneStateManager: PhoneStateManager? = null
     private var bluetoothManager: BluetoothAudioManager? = null
     private var microphoneManager: MicrophoneManager? = null
+    private var recordingTimer: RecordingTimer? = null
 
     private var isMonitoring = false
 
@@ -33,7 +44,13 @@ class AudioRecorderHelperModule : Module() {
             "onBluetoothChange",
             "onAudioFocusChanged",
             "onAudioStateChanged",
-            "onMicrophoneChanged"
+            "onMicrophoneChanged",
+            "onBottomSheetItemSelected",
+            "onBottomSheetDismiss",
+            // Recording Timer Events
+            "onRecordingTimeLimitReached",
+            "onRecordingTimeWarning",
+            "onRecordingTimerTick"
         )
 
         OnCreate {
@@ -88,18 +105,47 @@ class AudioRecorderHelperModule : Module() {
                     ))
                 }
             )
+            
+            // Инициализируем таймер записи
+            recordingTimer = RecordingTimer(
+                onTick = { elapsed, remaining, max ->
+                    sendEvent("onRecordingTimerTick", mapOf(
+                        "elapsedSeconds" to elapsed,
+                        "remainingSeconds" to remaining,
+                        "maxDurationSeconds" to max
+                    ))
+                },
+                onWarning = { remaining, elapsed, max ->
+                    sendEvent("onRecordingTimeWarning", mapOf(
+                        "remainingSeconds" to remaining,
+                        "elapsedSeconds" to elapsed,
+                        "maxDurationSeconds" to max
+                    ))
+                },
+                onLimitReached = { elapsed, max ->
+                    sendEvent("onRecordingTimeLimitReached", mapOf(
+                        "elapsedSeconds" to elapsed,
+                        "maxDurationSeconds" to max,
+                        "reason" to "TIME_LIMIT_REACHED"
+                    ))
+                }
+            )
         }
 
         OnDestroy {
+            recordingTimer?.stop()
+            recordingTimer = null
             stopMonitoringInternal()
             bluetoothManager?.release()
             bluetoothManager = null
             microphoneManager = null
         }
 
+
         // ============================================================
         // МОНИТОРИНГ
         // ============================================================
+        
 
         AsyncFunction("startMonitoring") { promise: Promise ->
             try {
@@ -165,12 +211,80 @@ class AudioRecorderHelperModule : Module() {
         AsyncFunction("getBluetoothState") { promise: Promise ->
             try {
                 val state = bluetoothManager?.getBluetoothState()
-                promise.resolve(mapOf(
-                    "isConnected" to (state?.isConnected ?: false),
-                    "isHeadset" to (state?.isBluetoothHeadset ?: false),
-                    "isSpeaker" to (state?.isBluetoothSpeaker ?: false),
-                    "deviceName" to state?.deviceName
-                ))
+                if (state != null) {
+                    promise.resolve(mapOf(
+                        "isConnected" to state.isConnected,
+                        "isHeadset" to state.isBluetoothHeadset,
+                        "isSpeaker" to state.isBluetoothSpeaker,
+                        "deviceName" to state.deviceName
+                    ))
+                } else {
+                    promise.resolve(mapOf(
+                        "isConnected" to false,
+                        "isHeadset" to false,
+                        "isSpeaker" to false,
+                        "deviceName" to null
+                    ))
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        /**
+         * Проверить наличие разрешений Bluetooth
+         */
+        AsyncFunction("hasBluetoothPermission") { promise: Promise ->
+            try {
+                val hasPermission = bluetoothManager?.hasBluetoothPermission() ?: false
+                promise.resolve(hasPermission)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        /**
+         * Получить статус разрешений Bluetooth
+         */
+        AsyncFunction("getBluetoothPermissionStatus") { promise: Promise ->
+            try {
+                val status = bluetoothManager?.getBluetoothPermissionStatus()
+                if (status != null) {
+                    promise.resolve(mapOf(
+                        "hasPermission" to status.hasPermission,
+                        "missingPermissions" to status.missingPermissions
+                    ))
+                } else {
+                    promise.resolve(mapOf(
+                        "hasPermission" to false,
+                        "missingPermissions" to BluetoothAudioManager.getRequiredPermissions()
+                    ))
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        /**
+         * Получить список необходимых разрешений для Bluetooth
+         */
+        AsyncFunction("getBluetoothRequiredPermissions") { promise: Promise ->
+            try {
+                val permissions = BluetoothAudioManager.getRequiredPermissions()
+                promise.resolve(permissions)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        /**
+         * Инициализировать Bluetooth после получения разрешений
+         * Вызывать после успешного запроса разрешений
+         */
+        AsyncFunction("initializeBluetoothAfterPermission") { promise: Promise ->
+            try {
+                bluetoothManager?.initializeAfterPermissionGranted()
+                promise.resolve(null)
             } catch (e: Exception) {
                 promise.reject("ERROR", e.message, e)
             }
@@ -226,7 +340,6 @@ class AudioRecorderHelperModule : Module() {
                 
                 when (result) {
                     is MicrophoneSelectionResult.Success -> {
-                        // Отправляем событие об изменении микрофона
                         sendEvent("onMicrophoneChanged", microphoneToMap(result.microphone, id != null))
                         
                         promise.resolve(mapOf(
@@ -333,6 +446,80 @@ class AudioRecorderHelperModule : Module() {
         }
 
         // ============================================================
+        // RECORDING TIME LIMIT
+        // ============================================================
+
+        AsyncFunction("startRecordingTimer") { maxDurationSeconds: Int, warningBeforeEndSeconds: Int, promise: Promise ->
+            try {
+                if (maxDurationSeconds <= 0) {
+                    promise.reject("ERROR", "maxDurationSeconds must be positive", null)
+                    return@AsyncFunction
+                }
+                
+                recordingTimer?.start(maxDurationSeconds, warningBeforeEndSeconds)
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("stopRecordingTimer") { promise: Promise ->
+            try {
+                recordingTimer?.stop()
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("pauseRecordingTimer") { promise: Promise ->
+            try {
+                recordingTimer?.pause()
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("resumeRecordingTimer") { promise: Promise ->
+            try {
+                recordingTimer?.resume()
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("getRecordingTimerStatus") { promise: Promise ->
+            try {
+                val status = recordingTimer?.getStatus()
+                if (status != null) {
+                    promise.resolve(mapOf(
+                        "isActive" to status.isActive,
+                        "isPaused" to status.isPaused,
+                        "elapsedSeconds" to status.elapsedSeconds,
+                        "remainingSeconds" to status.remainingSeconds,
+                        "maxDurationSeconds" to status.maxDurationSeconds
+                    ))
+                } else {
+                    promise.resolve(mapOf(
+                        "isActive" to false,
+                        "isPaused" to false,
+                        "elapsedSeconds" to 0,
+                        "remainingSeconds" to 0,
+                        "maxDurationSeconds" to 0
+                    ))
+                }
+            } catch (e: Exception) {
+                promise.reject("ERROR", e.message, e)
+            }
+        }
+
+        AsyncFunction("isRecordingTimerActive") { promise: Promise ->
+            promise.resolve(recordingTimer?.isActive() ?: false)
+        }
+
+        // ============================================================
         // УТИЛИТЫ
         // ============================================================
 
@@ -382,4 +569,5 @@ class AudioRecorderHelperModule : Module() {
         
         isMonitoring = false
     }
+
 }
