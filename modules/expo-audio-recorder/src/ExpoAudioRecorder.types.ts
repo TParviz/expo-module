@@ -1,5 +1,3 @@
-// ==================== Recording ====================
-
 export type RecordingState = 'idle' | 'recording' | 'paused';
 
 export type RecordingConfig = {
@@ -9,6 +7,7 @@ export type RecordingConfig = {
   enableChunking?: boolean; // Default: false
   chunkDuration?: number;   // Duration in ms, default: 1000
   microphoneId?: number;    // ID микрофона (null = автовыбор)
+  maxDuration?: number;     // Максимальная длительность в секундах (0 = без лимита)
 };
 
 export type RecordingResult = {
@@ -77,6 +76,14 @@ export type PermissionResponse = {
 // ==================== Events ====================
 
 /**
+ * Причина завершения записи
+ */
+export type RecordingCompletionReason = 
+  | 'user'      // Пользователь нажал стоп
+  | 'duration'  // Достигнут maxDuration
+  | 'error';    // Ошибка
+
+/**
  * Типы событий записи
  */
 export type RecordingEventType =
@@ -113,6 +120,9 @@ export type RecordingEvent = {
   duration?: number;
   fileSize?: number;
   
+  // Для 'completed' - причина завершения
+  reason?: RecordingCompletionReason;
+  
   // Для 'cantHearMicrophone'
   silenceDuration?: number;
   
@@ -120,7 +130,7 @@ export type RecordingEvent = {
   chunkIndex?: number;
   chunkData?: number[];
   
-  // Для 'chunkWasLost', 'audioFileError'
+  // Для 'chunkWasLost', 'audioFileError', 'error'
   error?: {
     code: string;
     message: string;
@@ -133,7 +143,6 @@ export type RecordingEvent = {
   // Для 'microphoneSelected', 'microphoneSelectionFailed'
   id?: number;
   name?: string;
-  reason?: string;
 };
 
 // ==================== Module Events ====================

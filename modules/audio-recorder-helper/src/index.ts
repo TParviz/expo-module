@@ -31,11 +31,6 @@ import type {
   MicrophoneInfo,
   MicrophoneSelectionResult,
   PhoneCallEvent,
-  RecordingTimeLimitOptions,
-  RecordingTimeLimitReachedEvent,
-  RecordingTimerStatus,
-  RecordingTimerTickEvent,
-  RecordingTimeWarningEvent,
   Subscription
 } from './AudioRecorderHelper.types';
 
@@ -280,77 +275,6 @@ export async function hasWiredMicrophone(): Promise<boolean> {
 }
 
 // ============================================================
-// RECORDING TIME LIMIT
-// ============================================================
-
-/**
- * Запустить таймер ограничения записи
- * 
- * @param options - параметры таймера
- * 
- * @example
- * ```ts
- * // Ограничить запись 5 минутами, предупредить за 30 секунд
- * await startRecordingTimer({
- *   maxDurationSeconds: 300,
- *   warningBeforeEndSeconds: 30
- * });
- * 
- * // Подписаться на события
- * addRecordingTimeLimitListener((event) => {
- *   console.log('Время записи истекло!', event.elapsedSeconds);
- *   await stopRecording(); // Остановить запись
- * });
- * ```
- */
-export async function startRecordingTimer(options: RecordingTimeLimitOptions): Promise<void> {
-  return await AudioRecorderHelper.startRecordingTimer(
-    options.maxDurationSeconds,
-    options.warningBeforeEndSeconds ?? 0
-  );
-}
-
-/**
- * Остановить таймер записи
- * 
- * Вызывается автоматически при достижении лимита,
- * но можно вызвать вручную при остановке записи
- */
-export async function stopRecordingTimer(): Promise<void> {
-  return await AudioRecorderHelper.stopRecordingTimer();
-}
-
-/**
- * Пауза таймера (при паузе записи)
- * 
- * Время на паузе не учитывается в лимите
- */
-export async function pauseRecordingTimer(): Promise<void> {
-  return await AudioRecorderHelper.pauseRecordingTimer();
-}
-
-/**
- * Возобновить таймер после паузы
- */
-export async function resumeRecordingTimer(): Promise<void> {
-  return await AudioRecorderHelper.resumeRecordingTimer();
-}
-
-/**
- * Получить текущий статус таймера
- */
-export async function getRecordingTimerStatus(): Promise<RecordingTimerStatus> {
-  return await AudioRecorderHelper.getRecordingTimerStatus();
-}
-
-/**
- * Проверить активен ли таймер
- */
-export async function isRecordingTimerActive(): Promise<boolean> {
-  return await AudioRecorderHelper.isRecordingTimerActive();
-}
-
-// ============================================================
 // УТИЛИТЫ
 // ============================================================
 
@@ -439,58 +363,6 @@ export function addMicrophoneChangedListener(
   return emitter.addListener('onMicrophoneChanged', callback);
 }
 
-/**
- * Подписаться на достижение лимита времени записи
- * 
- * ВАЖНО: При получении этого события запись должна быть остановлена!
- * 
- * @example
- * ```ts
- * const sub = addRecordingTimeLimitListener(async (event) => {
- *   console.log(`Записано ${event.elapsedSeconds} секунд`);
- *   await stopRecording(); // Остановить запись
- * });
- * ```
- */
-export function addRecordingTimeLimitListener(
-  callback: (event: RecordingTimeLimitReachedEvent) => void
-): Subscription {
-  return emitter.addListener('onRecordingTimeLimitReached', callback);
-}
-
-/**
- * Подписаться на предупреждение о скором окончании времени
- * 
- * @example
- * ```ts
- * const sub = addRecordingTimeWarningListener((event) => {
- *   showToast(`Осталось ${event.remainingSeconds} секунд`);
- * });
- * ```
- */
-export function addRecordingTimeWarningListener(
-  callback: (event: RecordingTimeWarningEvent) => void
-): Subscription {
-  return emitter.addListener('onRecordingTimeWarning', callback);
-}
-
-/**
- * Подписаться на тики таймера (каждую секунду)
- * 
- * Полезно для отображения оставшегося времени в UI
- * 
- * @example
- * ```ts
- * const sub = addRecordingTimerTickListener((event) => {
- *   setRemainingTime(event.remainingSeconds);
- * });
- * ```
- */
-export function addRecordingTimerTickListener(
-  callback: (event: RecordingTimerTickEvent) => void
-): Subscription {
-  return emitter.addListener('onRecordingTimerTick', callback);
-}
 
 /**
  * Создать обработчик прерываний для рекордера
@@ -533,127 +405,6 @@ export function createRecorderHandler(options: {
       pausedBy = null;
       stopMonitoring();
     },
-  };
-}
-
-/**
- * Создать обработчик записи с ограничением времени
- * 
- * Удобный хелпер объединяющий прерывания и лимит времени
- * 
- * @example
- * ```ts
- * const handler = createTimeLimitedRecorderHandler({
- *   maxDurationSeconds: 300, // 5 минут
- *   warningBeforeEndSeconds: 30,
- *   onPause: () => recorder.pause(),
- *   onResume: () => recorder.resume(),
- *   onStop: () => recorder.stop(),
- *   onWarning: (remaining) => toast(`Осталось ${remaining} сек`),
- *   onTick: (elapsed, remaining) => updateUI(elapsed, remaining),
- * });
- * 
- * // При старте записи
- * handler.start();
- * 
- * // При остановке записи
- * handler.stop();
- * ```
- */
-export function createTimeLimitedRecorderHandler(options: {
-  maxDurationSeconds: number;
-  warningBeforeEndSeconds?: number;
-  onPause: () => void | Promise<void>;
-  onResume: () => void | Promise<void>;
-  onStop: () => void | Promise<void>;
-  onWarning?: (remainingSeconds: number) => void;
-  onTick?: (elapsedSeconds: number, remainingSeconds: number) => void;
-  onNotify?: (message: string) => void;
-}): { 
-  start: () => Promise<void>; 
-  stop: () => Promise<void>;
-  pause: () => Promise<void>;
-  resume: () => Promise<void>;
-} {
-  let interruptionSub: Subscription | null = null;
-  let endSub: Subscription | null = null;
-  let limitSub: Subscription | null = null;
-  let warningSub: Subscription | null = null;
-  let tickSub: Subscription | null = null;
-  let pausedBy: InterruptionSource | null = null;
-
-  return {
-    start: async () => {
-      // Подписки на прерывания
-      interruptionSub = addInterruptionListener(async (info) => {
-        if (info.policy === 'PAUSE_AUTO') {
-          pausedBy = info.source;
-          await pauseRecordingTimer(); // Пауза таймера
-          await options.onPause();
-        } else if (info.policy === 'CONTINUE_NOTIFY' && options.onNotify) {
-          options.onNotify(info.message);
-        }
-      });
-
-      endSub = addInterruptionEndListener(async (event) => {
-        if (pausedBy === event.source) {
-          pausedBy = null;
-          await resumeRecordingTimer(); // Возобновить таймер
-          await options.onResume();
-        }
-      });
-
-      // Подписки на таймер
-      limitSub = addRecordingTimeLimitListener(async (event) => {
-        await options.onStop();
-      });
-
-      if (options.onWarning) {
-        warningSub = addRecordingTimeWarningListener((event) => {
-          options.onWarning!(event.remainingSeconds);
-        });
-      }
-
-      if (options.onTick) {
-        tickSub = addRecordingTimerTickListener((event) => {
-          options.onTick!(event.elapsedSeconds, event.remainingSeconds);
-        });
-      }
-
-      // Старт мониторинга и таймера
-      await startMonitoring();
-      await startRecordingTimer({
-        maxDurationSeconds: options.maxDurationSeconds,
-        warningBeforeEndSeconds: options.warningBeforeEndSeconds
-      });
-    },
-
-    stop: async () => {
-      // Отписки
-      interruptionSub?.remove();
-      endSub?.remove();
-      limitSub?.remove();
-      warningSub?.remove();
-      tickSub?.remove();
-      interruptionSub = null;
-      endSub = null;
-      limitSub = null;
-      warningSub = null;
-      tickSub = null;
-      pausedBy = null;
-
-      // Стоп
-      await stopRecordingTimer();
-      await stopMonitoring();
-    },
-
-    pause: async () => {
-      await pauseRecordingTimer();
-    },
-
-    resume: async () => {
-      await resumeRecordingTimer();
-    }
   };
 }
 

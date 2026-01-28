@@ -18,6 +18,7 @@ import kotlinx.coroutines.*
  * - Стриминг аудио чанков
  * - Детекция тишины
  * - Выбор микрофона
+ * - Ограничение по времени (maxDuration)
  */
 class ExpoAudioRecorderModule : Module() {
 
@@ -90,7 +91,8 @@ class ExpoAudioRecorderModule : Module() {
                     channels = (config["channels"] as? Number)?.toInt() ?: 1,
                     enableChunking = (config["enableChunking"] as? Boolean) ?: false,
                     chunkDuration = (config["chunkDuration"] as? Number)?.toInt() ?: 1000,
-                    microphoneId = (config["microphoneId"] as? Number)?.toInt()
+                    microphoneId = (config["microphoneId"] as? Number)?.toInt(),
+                    maxDuration = (config["maxDuration"] as? Number)?.toInt() ?: 0  // 0 = без лимита
                 )
 
                 val filePath = getService().startRecording(recordingConfig)
@@ -103,7 +105,7 @@ class ExpoAudioRecorderModule : Module() {
         AsyncFunction("stopRecording") { promise: Promise ->
             moduleScope.launch {
                 try {
-                    val result = getService().stopRecording()
+                    val result = getService().stopRecording(reason = "user")
                     promise.resolve(mapOf(
                         "filePath" to result.filePath,
                         "duration" to result.duration,

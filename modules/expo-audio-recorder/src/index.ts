@@ -16,6 +16,7 @@ import type {
   MicrophoneInfo,
   MicrophoneType,
   PermissionResponse,
+  RecordingCompletionReason,
   RecordingConfig,
   RecordingEvent,
   RecordingEventType,
@@ -32,6 +33,7 @@ export type {
   MicrophoneInfo,
   MicrophoneType,
   PermissionResponse,
+  RecordingCompletionReason,
   RecordingConfig,
   RecordingEvent,
   RecordingEventType,
@@ -192,7 +194,7 @@ export function addRecordingErrorListener(
  * Подписаться на все события записи
  * 
  * События:
- * - completed: Запись завершена
+ * - completed: Запись завершена (reason: 'user' | 'duration' | 'error')
  * - canceled: Запись отменена
  * - audioFileError: Ошибка файла
  * - cantHearMicrophone: Микрофон не слышит (тишина > 3 сек)

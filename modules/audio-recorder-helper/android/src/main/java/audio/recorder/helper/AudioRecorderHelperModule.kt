@@ -45,12 +45,6 @@ class AudioRecorderHelperModule : Module() {
             "onAudioFocusChanged",
             "onAudioStateChanged",
             "onMicrophoneChanged",
-            "onBottomSheetItemSelected",
-            "onBottomSheetDismiss",
-            // Recording Timer Events
-            "onRecordingTimeLimitReached",
-            "onRecordingTimeWarning",
-            "onRecordingTimerTick"
         )
 
         OnCreate {
@@ -106,35 +100,9 @@ class AudioRecorderHelperModule : Module() {
                 }
             )
             
-            // Инициализируем таймер записи
-            recordingTimer = RecordingTimer(
-                onTick = { elapsed, remaining, max ->
-                    sendEvent("onRecordingTimerTick", mapOf(
-                        "elapsedSeconds" to elapsed,
-                        "remainingSeconds" to remaining,
-                        "maxDurationSeconds" to max
-                    ))
-                },
-                onWarning = { remaining, elapsed, max ->
-                    sendEvent("onRecordingTimeWarning", mapOf(
-                        "remainingSeconds" to remaining,
-                        "elapsedSeconds" to elapsed,
-                        "maxDurationSeconds" to max
-                    ))
-                },
-                onLimitReached = { elapsed, max ->
-                    sendEvent("onRecordingTimeLimitReached", mapOf(
-                        "elapsedSeconds" to elapsed,
-                        "maxDurationSeconds" to max,
-                        "reason" to "TIME_LIMIT_REACHED"
-                    ))
-                }
-            )
         }
 
         OnDestroy {
-            recordingTimer?.stop()
-            recordingTimer = null
             stopMonitoringInternal()
             bluetoothManager?.release()
             bluetoothManager = null
@@ -443,80 +411,6 @@ class AudioRecorderHelperModule : Module() {
 
         AsyncFunction("isManualMicrophoneSelection") { promise: Promise ->
             promise.resolve(microphoneManager?.isManualSelection() ?: false)
-        }
-
-        // ============================================================
-        // RECORDING TIME LIMIT
-        // ============================================================
-
-        AsyncFunction("startRecordingTimer") { maxDurationSeconds: Int, warningBeforeEndSeconds: Int, promise: Promise ->
-            try {
-                if (maxDurationSeconds <= 0) {
-                    promise.reject("ERROR", "maxDurationSeconds must be positive", null)
-                    return@AsyncFunction
-                }
-                
-                recordingTimer?.start(maxDurationSeconds, warningBeforeEndSeconds)
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("ERROR", e.message, e)
-            }
-        }
-
-        AsyncFunction("stopRecordingTimer") { promise: Promise ->
-            try {
-                recordingTimer?.stop()
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("ERROR", e.message, e)
-            }
-        }
-
-        AsyncFunction("pauseRecordingTimer") { promise: Promise ->
-            try {
-                recordingTimer?.pause()
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("ERROR", e.message, e)
-            }
-        }
-
-        AsyncFunction("resumeRecordingTimer") { promise: Promise ->
-            try {
-                recordingTimer?.resume()
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("ERROR", e.message, e)
-            }
-        }
-
-        AsyncFunction("getRecordingTimerStatus") { promise: Promise ->
-            try {
-                val status = recordingTimer?.getStatus()
-                if (status != null) {
-                    promise.resolve(mapOf(
-                        "isActive" to status.isActive,
-                        "isPaused" to status.isPaused,
-                        "elapsedSeconds" to status.elapsedSeconds,
-                        "remainingSeconds" to status.remainingSeconds,
-                        "maxDurationSeconds" to status.maxDurationSeconds
-                    ))
-                } else {
-                    promise.resolve(mapOf(
-                        "isActive" to false,
-                        "isPaused" to false,
-                        "elapsedSeconds" to 0,
-                        "remainingSeconds" to 0,
-                        "maxDurationSeconds" to 0
-                    ))
-                }
-            } catch (e: Exception) {
-                promise.reject("ERROR", e.message, e)
-            }
-        }
-
-        AsyncFunction("isRecordingTimerActive") { promise: Promise ->
-            promise.resolve(recordingTimer?.isActive() ?: false)
         }
 
         // ============================================================

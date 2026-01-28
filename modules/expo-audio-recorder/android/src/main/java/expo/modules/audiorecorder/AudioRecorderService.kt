@@ -8,6 +8,8 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.*
 import java.io.File
@@ -26,6 +28,7 @@ import kotlin.math.sqrt
  * 4. Детекция тишины (cantHearMicrophone)
  * 5. Выбор предпочтительного микрофона
  * 6. Периодическое сохранение состояния
+ * 7. Автоматическая остановка по maxDuration
  */
 class AudioRecorderService(
     private val context: Context,
@@ -90,6 +93,11 @@ class AudioRecorderService(
     private val stateManager = RecordingStateManager(context)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+    // === Max Duration Timer ===
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var maxDurationRunnable: Runnable? = null
+    private var maxDurationSeconds: Int = 0
+
     // Callback для внешних прерываний
     var onPauseRequested: (() -> Unit)? = null
     var onResumeRequested: (() -> Unit)? = null
@@ -108,6 +116,7 @@ class AudioRecorderService(
 
         currentConfig = config
         currentRecordingId = "rec_${System.currentTimeMillis()}"
+        maxDurationSeconds = config.maxDuration
 
         // Создаём PCM файл для сырых данных
         currentPcmFile = createPcmFile(currentRecordingId!!)
@@ -143,6 +152,12 @@ class AudioRecorderService(
             recordAudioLoop()
         }
 
+        // === Запускаем таймер maxDuration ===
+        if (maxDurationSeconds > 0) {
+            startMaxDurationTimer()
+            Log.i(TAG, "Max duration timer started: ${maxDurationSeconds}s")
+        }
+
         emitStateChange()
         
         // Логируем доступные микрофоны
@@ -155,13 +170,18 @@ class AudioRecorderService(
 
     /**
      * Остановить запись и сохранить файл
+     * 
+     * @param reason Причина остановки: "user" | "duration" | "error"
      */
-    suspend fun stopRecording(): RecordingResult = withContext(Dispatchers.IO) {
+    suspend fun stopRecording(reason: String = "user"): RecordingResult = withContext(Dispatchers.IO) {
         if (!isRecording.get()) {
             throw IllegalStateException("No active recording")
         }
 
-        Log.i(TAG, "Stopping recording...")
+        Log.i(TAG, "Stopping recording, reason: $reason")
+
+        // Останавливаем таймер
+        stopMaxDurationTimer()
 
         isRecording.set(false)
         isPaused.set(false)
@@ -201,13 +221,16 @@ class AudioRecorderService(
         stateManager.clearState()
 
         emitStateChange()
+        
+        // Отправляем событие completed с reason
         emitRecordingEvent("completed", mapOf(
             "filePath" to outputFile.absolutePath,
             "duration" to duration,
-            "fileSize" to fileSize
+            "fileSize" to fileSize,
+            "reason" to reason  // <-- NEW: "user" | "duration" | "error"
         ))
 
-        Log.i(TAG, "Recording stopped: ${outputFile.absolutePath}, duration=${duration}s")
+        Log.i(TAG, "Recording stopped: ${outputFile.absolutePath}, duration=${duration}s, reason=$reason")
 
         RecordingResult(
             filePath = outputFile.absolutePath,
@@ -226,6 +249,9 @@ class AudioRecorderService(
         }
 
         Log.i(TAG, "Canceling recording...")
+
+        // Останавливаем таймер
+        stopMaxDurationTimer()
 
         isRecording.set(false)
         isPaused.set(false)
@@ -250,17 +276,22 @@ class AudioRecorderService(
      */
     fun pauseRecording() {
         if (!isRecording.get() || isPaused.get()) {
-            throw IllegalStateException("Cannot pause")
+            Log.w(TAG, "Cannot pause: isRecording=${isRecording.get()}, isPaused=${isPaused.get()}")
+            return
         }
 
         Log.i(TAG, "Pausing recording...")
 
         isPaused.set(true)
         pauseStartTime = System.currentTimeMillis()
-
-        saveRecordingState()
+        
+        // Пауза таймера maxDuration
+        pauseMaxDurationTimer()
+        
         updateNotification("paused")
         emitStateChange()
+
+        Log.i(TAG, "Recording paused")
     }
 
     /**
@@ -268,7 +299,8 @@ class AudioRecorderService(
      */
     fun resumeRecording() {
         if (!isRecording.get() || !isPaused.get()) {
-            throw IllegalStateException("Cannot resume")
+            Log.w(TAG, "Cannot resume: isRecording=${isRecording.get()}, isPaused=${isPaused.get()}")
+            return
         }
 
         Log.i(TAG, "Resuming recording...")
@@ -276,10 +308,14 @@ class AudioRecorderService(
         pausedDuration += System.currentTimeMillis() - pauseStartTime
         pauseStartTime = 0
         isPaused.set(false)
-
-        saveRecordingState()
+        
+        // Возобновление таймера maxDuration
+        resumeMaxDurationTimer()
+        
         updateNotification("recording")
         emitStateChange()
+
+        Log.i(TAG, "Recording resumed")
     }
 
     /**
@@ -294,8 +330,8 @@ class AudioRecorderService(
 
         return RecordingStatus(
             state = state,
-            filePath = if (isRecording.get()) getOutputFilePath() else null,
-            duration = calculateDuration(),
+            filePath = currentPcmFile?.absolutePath,
+            duration = calculateCurrentDuration(),
             isRecording = isRecording.get(),
             isPaused = isPaused.get(),
             noiseLevel = currentNoiseLevel
@@ -376,166 +412,175 @@ class AudioRecorderService(
     }
 
     /**
-     * Освободить ресурсы
+     * Проверить находимся ли в grace period
      */
-    fun release() {
-        if (isRecording.get()) {
-            cancelRecording()
-        }
-        releaseResources()
+    fun isInGracePeriod(): Boolean {
+        if (!isRecording.get()) return false
+        val elapsed = System.currentTimeMillis() - recordingStartTime
+        return elapsed < GRACE_PERIOD_MS
     }
 
-    // ==================== PUBLIC API: Microphones ====================
-
     /**
-     * Получить список всех доступных микрофонов
+     * Получить список микрофонов
      */
     fun getAvailableMicrophones(): List<MicrophoneInfo> {
-        val microphones = mutableListOf<MicrophoneInfo>()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            
-            for (device in devices) {
-                if (isMicrophoneType(device.type)) {
-                    val info = MicrophoneInfo(
-                        id = device.id,
-                        type = device.type,
-                        typeName = getDeviceTypeName(device.type),
-                        name = device.productName?.toString() ?: getDeviceTypeName(device.type),
-                        isDefault = device.type == AudioDeviceInfo.TYPE_BUILTIN_MIC,
-                        address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            device.address
-                        } else null,
-                        channelCounts = device.channelCounts?.toList() ?: emptyList(),
-                        sampleRates = device.sampleRates?.toList() ?: emptyList()
-                    )
-                    microphones.add(info)
-                }
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        return devices
+            .filter { isMicrophoneType(it.type) }
+            .map { device ->
+                MicrophoneInfo(
+                    id = device.id,
+                    type = device.type,
+                    typeName = getDeviceTypeName(device.type),
+                    name = device.productName?.toString() ?: "Unknown",
+                    isDefault = device.type == AudioDeviceInfo.TYPE_BUILTIN_MIC,
+                    address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        device.address
+                    } else null,
+                    channelCounts = device.channelCounts?.toList() ?: emptyList(),
+                    sampleRates = device.sampleRates?.toList() ?: emptyList()
+                )
             }
-        } else {
-            // Для старых версий Android возвращаем только встроенный микрофон
-            microphones.add(MicrophoneInfo(
-                id = 0,
-                type = AudioDeviceInfo.TYPE_BUILTIN_MIC,
-                typeName = "BUILTIN_MIC",
-                name = "Built-in Microphone",
-                isDefault = true,
-                address = null,
-                channelCounts = listOf(1, 2),
-                sampleRates = listOf(8000, 16000, 44100, 48000)
-            ))
-        }
-
-        return microphones
     }
 
     /**
      * Получить активный микрофон
      */
     fun getActiveMicrophone(): MicrophoneInfo? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            
-            // Приоритет: Bluetooth SCO > Wired > USB > Built-in
-            val priorityOrder = listOf(
-                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-                AudioDeviceInfo.TYPE_WIRED_HEADSET,
-                AudioDeviceInfo.TYPE_USB_HEADSET,
-                AudioDeviceInfo.TYPE_USB_DEVICE,
-                AudioDeviceInfo.TYPE_BUILTIN_MIC
-            )
-
-            for (type in priorityOrder) {
-                val device = devices.find { it.type == type && isMicrophoneType(it.type) }
-                if (device != null) {
-                    return MicrophoneInfo(
-                        id = device.id,
-                        type = device.type,
-                        typeName = getDeviceTypeName(device.type),
-                        name = device.productName?.toString() ?: getDeviceTypeName(device.type),
-                        isDefault = device.type == AudioDeviceInfo.TYPE_BUILTIN_MIC,
-                        address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            device.address
-                        } else null,
-                        channelCounts = device.channelCounts?.toList() ?: emptyList(),
-                        sampleRates = device.sampleRates?.toList() ?: emptyList()
-                    )
-                }
-            }
-        }
-        return null
+        val mics = getAvailableMicrophones()
+        // Приоритет: Bluetooth > Wired > USB > Built-in
+        return mics.find { it.typeName == "BLUETOOTH_SCO" }
+            ?: mics.find { it.typeName == "WIRED_HEADSET" }
+            ?: mics.find { it.typeName == "USB_HEADSET" || it.typeName == "USB_DEVICE" }
+            ?: mics.find { it.typeName == "BUILTIN_MIC" }
+            ?: mics.firstOrNull()
     }
 
     /**
-     * Проверить находимся ли в grace period
+     * Освободить ресурсы
      */
-    fun isInGracePeriod(): Boolean {
-        if (recordingStartTime == 0L) return false
-        return System.currentTimeMillis() - recordingStartTime < GRACE_PERIOD_MS
+    fun release() {
+        if (isRecording.get()) {
+            cancelRecording()
+        }
+        stopMaxDurationTimer()
+    }
+
+    // ==================== MAX DURATION TIMER ====================
+
+    private var timerPausedAt: Long = 0
+    private var remainingDurationMs: Long = 0
+
+    private fun startMaxDurationTimer() {
+        if (maxDurationSeconds <= 0) return
+
+        remainingDurationMs = maxDurationSeconds * 1000L
+        
+        maxDurationRunnable = Runnable {
+            Log.i(TAG, "Max duration reached, auto-stopping recording")
+            
+            // Останавливаем запись из main thread
+            scope.launch {
+                try {
+                    stopRecording(reason = "duration")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error auto-stopping recording", e)
+                }
+            }
+        }
+        
+        mainHandler.postDelayed(maxDurationRunnable!!, remainingDurationMs)
+        Log.d(TAG, "Max duration timer scheduled for ${remainingDurationMs}ms")
+    }
+
+    private fun stopMaxDurationTimer() {
+        maxDurationRunnable?.let { 
+            mainHandler.removeCallbacks(it) 
+            Log.d(TAG, "Max duration timer stopped")
+        }
+        maxDurationRunnable = null
+        remainingDurationMs = 0
+        timerPausedAt = 0
+    }
+
+    private fun pauseMaxDurationTimer() {
+        if (maxDurationRunnable == null || maxDurationSeconds <= 0) return
+        
+        timerPausedAt = System.currentTimeMillis()
+        
+        // Вычисляем сколько осталось
+        val elapsed = System.currentTimeMillis() - recordingStartTime - pausedDuration
+        remainingDurationMs = (maxDurationSeconds * 1000L) - elapsed
+        
+        // Убираем callback
+        mainHandler.removeCallbacks(maxDurationRunnable!!)
+        
+        Log.d(TAG, "Max duration timer paused, remaining: ${remainingDurationMs}ms")
+    }
+
+    private fun resumeMaxDurationTimer() {
+        if (maxDurationRunnable == null || maxDurationSeconds <= 0 || remainingDurationMs <= 0) return
+        
+        // Перезапускаем с оставшимся временем
+        mainHandler.postDelayed(maxDurationRunnable!!, remainingDurationMs)
+        timerPausedAt = 0
+        
+        Log.d(TAG, "Max duration timer resumed, remaining: ${remainingDurationMs}ms")
     }
 
     // ==================== PRIVATE: Recording Loop ====================
 
-    private suspend fun recordAudioLoop() = withContext(Dispatchers.IO) {
-        val bufferSize = 4096
-        val buffer = ShortArray(bufferSize)
+    private suspend fun recordAudioLoop() {
+        val bufferSize = AudioRecord.getMinBufferSize(
+            currentConfig?.sampleRate ?: 44100,
+            if ((currentConfig?.channels ?: 1) == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
 
-        Log.d(TAG, "Recording loop started")
+        val buffer = ShortArray(bufferSize / 2)
 
-        try {
-            while (isRecording.get()) {
-                if (isPaused.get()) {
-                    delay(100)
-                    continue
-                }
-
-                val readSize = audioRecord?.read(buffer, 0, bufferSize) ?: 0
-
-                if (readSize > 0) {
-                    // Записываем сырые PCM данные
-                    writePcmData(buffer, readSize)
-
-                    // Обновляем уровень шума
-                    updateNoiseLevel(buffer, readSize)
-
-                    // Проверяем тишину
-                    checkSilence()
-
-                    // Обрабатываем чанки для стриминга
-                    if (currentConfig?.enableChunking == true) {
-                        processChunk(buffer, readSize)
-                    }
-
-                    // Периодически сохраняем состояние
-                    maybeSaveState()
-                }
+        while (isRecording.get()) {
+            if (isPaused.get()) {
+                delay(50)
+                continue
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Recording loop error", e)
-            emitRecordingEvent("audioFileError", mapOf(
-                "error" to mapOf(
-                    "code" to "RECORDING_LOOP_ERROR",
-                    "message" to (e.message ?: "Unknown error")
-                )
-            ))
-        }
 
-        Log.d(TAG, "Recording loop ended")
+            val readCount = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+
+            if (readCount > 0) {
+                // Записываем в PCM файл
+                writePcmData(buffer, readCount)
+                
+                // Обновляем уровень шума
+                updateNoiseLevel(buffer, readCount)
+                
+                // Проверяем тишину
+                checkSilence()
+                
+                // Обрабатываем чанки если включено
+                if (currentConfig?.enableChunking == true) {
+                    processChunk(buffer, readCount)
+                }
+                
+                // Периодически сохраняем состояние
+                saveStateIfNeeded()
+                
+                // Отправляем обновление состояния
+                emitStateChange()
+            }
+        }
     }
 
-    private fun writePcmData(buffer: ShortArray, size: Int) {
+    private fun writePcmData(buffer: ShortArray, count: Int) {
         try {
-            val byteBuffer = ByteArray(size * 2)
-            for (i in 0 until size) {
-                val sample = buffer[i].toInt()
-                byteBuffer[i * 2] = (sample and 0xFF).toByte()
-                byteBuffer[i * 2 + 1] = ((sample shr 8) and 0xFF).toByte()
+            val byteBuffer = ByteArray(count * 2)
+            for (i in 0 until count) {
+                val sample = buffer[i]
+                byteBuffer[i * 2] = (sample.toInt() and 0xFF).toByte()
+                byteBuffer[i * 2 + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
             }
-            
             pcmOutputStream?.write(byteBuffer)
-            totalSamplesWritten += size
-            
+            totalSamplesWritten += count
         } catch (e: Exception) {
             Log.e(TAG, "Error writing PCM data", e)
         }
@@ -545,143 +590,112 @@ class AudioRecorderService(
         try {
             pcmOutputStream?.flush()
             pcmOutputStream?.close()
-            pcmOutputStream = null
         } catch (e: Exception) {
             Log.e(TAG, "Error closing PCM stream", e)
         }
+        pcmOutputStream = null
     }
 
     // ==================== PRIVATE: Noise & Silence ====================
 
-    private fun updateNoiseLevel(buffer: ShortArray, size: Int) {
+    private fun updateNoiseLevel(buffer: ShortArray, count: Int) {
         var sum = 0.0
-        for (i in 0 until size) {
-            val sample = buffer[i].toDouble() / 32768.0
+        for (i in 0 until count) {
+            val sample = buffer[i].toDouble() / Short.MAX_VALUE
             sum += sample * sample
         }
-        val rms = sqrt(sum / size)
+        val rms = sqrt(sum / count)
         val db = if (rms > 0) 20 * log10(rms) else -160.0
 
-        currentNoiseLevel = if (currentNoiseLevel == -160.0) {
-            db
-        } else {
-            currentNoiseLevel * (1 - noiseSmoothingFactor) + db * noiseSmoothingFactor
-        }
+        currentNoiseLevel = currentNoiseLevel * (1 - noiseSmoothingFactor) + db * noiseSmoothingFactor
     }
 
     private fun checkSilence() {
+        val now = System.currentTimeMillis()
+        
         if (currentNoiseLevel < SILENCE_THRESHOLD_DB) {
             if (silenceStartTime == 0L) {
-                silenceStartTime = System.currentTimeMillis()
-            } else {
-                val duration = System.currentTimeMillis() - silenceStartTime
-                if (duration >= SILENCE_NOTIFY_DURATION_MS && !silenceNotified) {
-                    emitRecordingEvent("cantHearMicrophone", mapOf(
-                        "silenceDuration" to (duration / 1000.0)
-                    ))
-                    silenceNotified = true
-                    Log.w(TAG, "Silence detected for ${duration}ms")
-                }
+                silenceStartTime = now
+            } else if (!silenceNotified && (now - silenceStartTime) > SILENCE_NOTIFY_DURATION_MS) {
+                silenceNotified = true
+                emitRecordingEvent("cantHearMicrophone", mapOf(
+                    "silenceDuration" to ((now - silenceStartTime) / 1000.0)
+                ))
             }
         } else {
-            silenceStartTime = 0L
+            silenceStartTime = 0
             silenceNotified = false
         }
     }
 
-    // ==================== PRIVATE: Chunking ====================
+    // ==================== PRIVATE: Chunks ====================
 
-    private fun processChunk(buffer: ShortArray, size: Int) {
-        for (i in 0 until size) {
+    private fun processChunk(buffer: ShortArray, count: Int) {
+        // Добавляем сэмплы в буфер
+        for (i in 0 until count) {
             chunkBuffer.add(buffer[i])
         }
 
-        val chunkSamples = (currentConfig!!.sampleRate * currentConfig!!.chunkDuration) / 1000
+        val chunkSamples = (chunkSampleRate * (currentConfig?.chunkDuration ?: 1000) / 1000)
+        
+        while (chunkBuffer.size >= chunkSamples) {
+            val chunkData = chunkBuffer.take(chunkSamples).map { it.toFloat() / Short.MAX_VALUE }
+            repeat(chunkSamples) { chunkBuffer.removeAt(0) }
 
-        if (chunkBuffer.size >= chunkSamples) {
-            try {
-                val downsampled = downsample(
-                    chunkBuffer.toShortArray(),
-                    currentConfig!!.sampleRate,
-                    chunkSampleRate
-                )
-
-                // Отправляем чанк
-                eventEmitter("onAudioChunk", mapOf(
-                    "data" to downsampled.toList(),
-                    "sampleRate" to chunkSampleRate,
-                    "timestamp" to System.currentTimeMillis()
-                ))
-
-                emitRecordingEvent("chunk", mapOf(
-                    "chunkIndex" to chunkIndex,
-                    "chunkData" to downsampled.toList()
-                ))
-
-                chunkIndex++
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Chunk processing error", e)
-                emitRecordingEvent("chunkWasLost", mapOf(
-                    "chunkIndex" to chunkIndex,
-                    "error" to mapOf(
-                        "code" to "CHUNK_PROCESSING_ERROR",
-                        "message" to (e.message ?: "Unknown")
-                    )
-                ))
-            }
-
-            chunkBuffer.clear()
+            emitRecordingEvent("chunk", mapOf(
+                "chunkIndex" to chunkIndex,
+                "chunkData" to chunkData
+            ))
+            
+            chunkIndex++
         }
-    }
-
-    private fun downsample(data: ShortArray, fromRate: Int, toRate: Int): FloatArray {
-        val ratio = fromRate.toFloat() / toRate.toFloat()
-        val outputSize = (data.size / ratio).toInt()
-        val output = FloatArray(outputSize)
-
-        for (i in output.indices) {
-            val srcIndex = (i * ratio).toInt()
-            if (srcIndex < data.size) {
-                output[i] = data[srcIndex] / 32768.0f
-            }
-        }
-
-        return output
     }
 
     // ==================== PRIVATE: State Management ====================
 
-    private fun maybeSaveState() {
+    private fun saveStateIfNeeded() {
         val now = System.currentTimeMillis()
-        if (now - lastStateSaveTime >= STATE_SAVE_INTERVAL_MS) {
+        if (now - lastStateSaveTime > STATE_SAVE_INTERVAL_MS) {
             saveRecordingState()
             lastStateSaveTime = now
         }
     }
 
     private fun saveRecordingState() {
-        stateManager.saveState(
-            RecordingState(
-                recordingId = currentRecordingId ?: return,
-                pcmFilePath = currentPcmFile?.absolutePath ?: return,
-                outputFilePath = getOutputFilePath(),
-                startTime = recordingStartTime,
-                pausedDuration = pausedDuration,
-                isPaused = isPaused.get(),
-                pauseStartTime = pauseStartTime,
-                sampleRate = currentConfig?.sampleRate ?: 44100,
-                channels = currentConfig?.channels ?: 1,
-                bitRate = currentConfig?.bitRate ?: 128000,
-                totalSamplesWritten = totalSamplesWritten
-            )
+        val state = RecordingState(
+            recordingId = currentRecordingId ?: return,
+            pcmFilePath = currentPcmFile?.absolutePath ?: return,
+            outputFilePath = getOutputFilePath(),
+            startTime = recordingStartTime,
+            pausedDuration = pausedDuration,
+            isPaused = isPaused.get(),
+            pauseStartTime = pauseStartTime,
+            sampleRate = currentConfig?.sampleRate ?: 44100,
+            channels = currentConfig?.channels ?: 1,
+            bitRate = currentConfig?.bitRate ?: 128000,
+            maxDuration = calculateCurrentDuration().toLong(),
+            timestamp = System.currentTimeMillis(),
+            totalSamplesWritten = totalSamplesWritten
         )
+        stateManager.saveState(state)
+    }
+
+    private fun calculateCurrentDuration(): Double {
+        if (!isRecording.get()) return 0.0
+        
+        val now = System.currentTimeMillis()
+        val currentPausedDuration = if (isPaused.get()) {
+            pausedDuration + (now - pauseStartTime)
+        } else {
+            pausedDuration
+        }
+        
+        val totalTime = now - recordingStartTime - currentPausedDuration
+        return totalTime / 1000.0
     }
 
     private fun calculateDuration(): Double {
-        if (recordingStartTime == 0L) return 0.0
-
-        val endTime = if (isPaused.get()) pauseStartTime else System.currentTimeMillis()
+        val endTime = System.currentTimeMillis()
         val totalTime = endTime - recordingStartTime - pausedDuration
         return totalTime / 1000.0
     }

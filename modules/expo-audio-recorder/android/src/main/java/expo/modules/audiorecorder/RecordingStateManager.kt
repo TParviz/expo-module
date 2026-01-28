@@ -30,6 +30,8 @@ class RecordingStateManager(private val context: Context) {
         private const val KEY_CHANNELS = "channels"
         private const val KEY_BIT_RATE = "bit_rate"
         private const val KEY_TOTAL_SAMPLES = "total_samples"
+        private const val KEY_TIMESTAMP = "timestamp"
+        private const val KEY_MAX_DURATION = "max_duration"
     }
 
     private val prefs: SharedPreferences = 
@@ -52,6 +54,8 @@ class RecordingStateManager(private val context: Context) {
             putInt(KEY_CHANNELS, state.channels)
             putInt(KEY_BIT_RATE, state.bitRate)
             putLong(KEY_TOTAL_SAMPLES, state.totalSamplesWritten)
+            putLong(KEY_TIMESTAMP, System.currentTimeMillis())
+            putLong(KEY_MAX_DURATION, state.pausedDuration)
             apply()
         }
         
@@ -88,7 +92,9 @@ class RecordingStateManager(private val context: Context) {
             sampleRate = prefs.getInt(KEY_SAMPLE_RATE, 44100),
             channels = prefs.getInt(KEY_CHANNELS, 1),
             bitRate = prefs.getInt(KEY_BIT_RATE, 128000),
-            totalSamplesWritten = prefs.getLong(KEY_TOTAL_SAMPLES, 0)
+            totalSamplesWritten = prefs.getLong(KEY_TOTAL_SAMPLES, 0),
+            maxDuration = prefs.getLong(KEY_MAX_DURATION, 0),
+            timestamp = prefs.getLong(KEY_TIMESTAMP, 0),
         )
     }
 

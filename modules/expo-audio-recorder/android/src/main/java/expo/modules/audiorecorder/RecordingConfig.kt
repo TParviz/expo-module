@@ -8,8 +8,9 @@ data class RecordingConfig(
     val bitRate: Int = 128000,
     val channels: Int = 1,
     val enableChunking: Boolean = false,
-    val chunkDuration: Int = 1000,  // ms
-    val microphoneId: Int? = null   // ID выбранного микрофона (null = автовыбор)
+    val chunkDuration: Int = 1000,
+    val microphoneId: Int? = null,
+    val maxDuration: Int = 0  // 0 = без лимита, >0 = секунды
 )
 
 /**
@@ -105,6 +106,8 @@ data class RecordingState(
     val sampleRate: Int,
     val channels: Int,
     val bitRate: Int,
+    val maxDuration: Long, 
+    val timestamp: Long,
     val totalSamplesWritten: Long
 ) {
     /**
