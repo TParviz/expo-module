@@ -111,6 +111,36 @@ export interface Subscription {
   remove(): void;
 }
 
+// ==================== Pause/Resume Requests ====================
+
+/**
+ * Событие запроса на паузу записи
+ * Отправляется когда InterruptionManager определяет необходимость паузы
+ */
+export type PauseRequestedEvent = {
+  source: InterruptionSource;
+  reason: 'interruption';
+};
+
+/**
+ * Событие запроса на возобновление записи
+ * Отправляется когда прерывание завершилось
+ */
+export type ResumeRequestedEvent = {
+  source: InterruptionSource;
+  reason: 'interruption_ended';
+};
+
+/**
+ * Событие обновления уведомления
+ */
+export type NotificationUpdateEvent = {
+  isPaused: boolean;
+  source: InterruptionSource;
+  isBluetoothHeadset: boolean;
+};
+
+
 // ==================== Constants ====================
 
 export const AudioFocusChange = {
@@ -152,4 +182,7 @@ export type AudioRecorderHelperEvents = {
   onAudioFocusChanged: (event: AudioFocusEvent) => void;
   onAudioStateChanged: (state: AudioState) => void;
   onMicrophoneChanged: (info: MicrophoneInfo) => void;
+  onNotificationUpdate: (event: NotificationUpdateEvent) => void;
+  onPauseRequested: (event: PauseRequestedEvent) => void;
+  onResumeRequested: (event: ResumeRequestedEvent) => void;
 };

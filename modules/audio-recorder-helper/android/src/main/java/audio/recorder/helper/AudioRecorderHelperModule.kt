@@ -1,5 +1,6 @@
 package audio.recorder.helper
 
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
@@ -15,9 +16,13 @@ import expo.modules.kotlin.Promise
  * - Управление аудио фокусом
  * - Работа с микрофонами
  * - Bluetooth аудио
- * - Ограничение времени записи
+ * - Уведомления для каждого типа прерывания
  */
 class AudioRecorderHelperModule : Module() {
+    
+    companion object {
+        private const val TAG = "AudioRecorderHelper"
+    }
     
     private var audioFocusManager: AudioFocusManager? = null
     private var interruptionManager: InterruptionManager? = null
@@ -42,6 +47,9 @@ class AudioRecorderHelperModule : Module() {
             "onAudioFocusChanged",
             "onAudioStateChanged",
             "onMicrophoneChanged",
+            "onNotificationUpdate", // NEW: событие обновления уведомления
+            "onPauseRequested",   // NEW: Запрос на паузу записи
+            "onResumeRequested"   // NEW: Запрос на возобновление записи
         )
 
         OnCreate {
@@ -54,6 +62,7 @@ class AudioRecorderHelperModule : Module() {
                 context = ctx,
                 bluetoothManager = bluetoothManager!!,
                 onInterruption = { info ->
+                    // Отправляем событие прерывания
                     sendEvent("onInterruption", mapOf(
                         "source" to info.source.name,
                         "policy" to info.policy.name,
@@ -62,11 +71,39 @@ class AudioRecorderHelperModule : Module() {
                     ))
                 },
                 onInterruptionEnd = { source ->
+                    // Отправляем событие окончания прерывания
                     sendEvent("onInterruptionEnd", mapOf(
                         "source" to source.name
                     ))
+                },
+                onPauseRequested = { source ->
+                    Log.d(TAG, "Pause requested by interruption: $source")
+                    sendEvent("onPauseRequested", mapOf(
+                        "source" to source.name,
+                        "reason" to "interruption"
+                    ))
+                },
+                // NEW: Callback для возобновления записи
+                onResumeRequested = { source ->
+                    Log.d(TAG, "Resume requested after interruption: $source")
+                    sendEvent("onResumeRequested", mapOf(
+                        "source" to source.name,
+                        "reason" to "interruption_ended"
+                    ))
                 }
             )
+            
+            // Устанавливаем callback для уведомлений
+            interruptionManager?.setNotificationCallback { isPaused, source, isBluetoothHeadset ->
+                Log.d(TAG, "Notification update: isPaused=$isPaused, source=$source, bt=$isBluetoothHeadset")
+                
+                // Отправляем событие в JS для возможной обработки
+                sendEvent("onNotificationUpdate", mapOf(
+                    "isPaused" to isPaused,
+                    "source" to source.name,
+                    "isBluetoothHeadset" to isBluetoothHeadset
+                ))
+            }
 
             audioFocusManager = AudioFocusManager(
                 context = ctx,
@@ -101,6 +138,7 @@ class AudioRecorderHelperModule : Module() {
 
         OnDestroy {
             stopMonitoringInternal()
+            interruptionManager?.setNotificationCallback(null)
             bluetoothManager?.release()
             bluetoothManager = null
             microphoneManager = null
@@ -244,7 +282,6 @@ class AudioRecorderHelperModule : Module() {
 
         /**
          * Инициализировать Bluetooth после получения разрешений
-         * Вызывать после успешного запроса разрешений
          */
         AsyncFunction("initializeBluetoothAfterPermission") { promise: Promise ->
             try {
@@ -449,6 +486,7 @@ class AudioRecorderHelperModule : Module() {
         phoneStateManager?.startListening()
         
         isMonitoring = true
+        Log.d(TAG, "Monitoring started")
     }
 
     private fun stopMonitoringInternal() {
@@ -459,6 +497,7 @@ class AudioRecorderHelperModule : Module() {
         audioFocusManager?.abandonAudioFocus()
         
         isMonitoring = false
+        Log.d(TAG, "Monitoring stopped")
     }
 
 }

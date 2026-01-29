@@ -21,7 +21,7 @@
     
   <application>
         <service
-            android:name=".AudioRecordingService"
+            android:name=".RecordingForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />

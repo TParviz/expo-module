@@ -30,7 +30,10 @@ import type {
   InterruptionSource,
   MicrophoneInfo,
   MicrophoneSelectionResult,
+  NotificationUpdateEvent,
+  PauseRequestedEvent,
   PhoneCallEvent,
+  ResumeRequestedEvent,
   Subscription
 } from './AudioRecorderHelper.types';
 
@@ -448,4 +451,65 @@ export function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Подписаться на обновления уведомлений
+ */
+export function addNotificationUpdateListener(
+  listener: (event: NotificationUpdateEvent) => void
+): Subscription {
+  return emitter.addListener('onNotificationUpdate', listener);
+}
+
+/**
+ * Подписаться на запросы паузы записи
+ * 
+ * Это событие отправляется когда InterruptionManager определяет,
+ * что запись должна быть поставлена на паузу (PAUSE_AUTO policy).
+ */
+export function addPauseRequestedListener(
+  listener: (event: PauseRequestedEvent) => void
+): Subscription {
+  return emitter.addListener('onPauseRequested', listener);
+}
+
+/**
+ * Подписаться на запросы возобновления записи
+ * 
+ * Это событие отправляется когда прерывание завершилось
+ * и запись может быть возобновлена.
+ */
+export function addResumeRequestedListener(
+  listener: (event: ResumeRequestedEvent) => void
+): Subscription {
+  return emitter.addListener('onResumeRequested', listener);
+}
+
+
+export function setupAutoPauseResume(handlers: {
+  onPause: (source: InterruptionSource) => Promise<void> | void;
+  onResume: (source: InterruptionSource) => Promise<void> | void;
+  onError?: (error: Error, action: 'pause' | 'resume') => void;
+}): () => void {
+  const pauseSub = addPauseRequestedListener(async (event) => {
+    try {
+      await handlers.onPause(event.source);
+    } catch (error) {
+      handlers.onError?.(error as Error, 'pause');
+    }
+  });
+
+  const resumeSub = addResumeRequestedListener(async (event) => {
+    try {
+      await handlers.onResume(event.source);
+    } catch (error) {
+      handlers.onError?.(error as Error, 'resume');
+    }
+  });
+
+  return () => {
+    pauseSub.remove();
+    resumeSub.remove();
+  };
 }
